@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #111521; font-family: sans-serif; }
+      [data-composition-id="main"] { width: 1920px; height: 1080px; background: radial-gradient(circle at 78% 12%, rgba(137,180,250,.16), transparent 32%), #111521; color: #f7f9ff; position: relative; }
+      .scene-content { width: 100%; height: 100%; padding: 64px 78px 58px; display: flex; flex-direction: column; gap: 30px; }
+      .topbar { display: grid; grid-template-columns: 1fr 520px; gap: 36px; align-items: start; }
+      .title-block { display: flex; flex-direction: column; gap: 16px; }
+      .eyebrow { color: #f5c2e7; font-size: 24px; font-weight: 700; letter-spacing: 0; }
+      h1 { font-size: 62px; line-height: 1.1; font-weight: 800; letter-spacing: 0; }
+      .subtitle { color: #aeb8d1; font-size: 28px; line-height: 1.45; max-width: 1050px; }
+      .photo-card { height: 292px; background: #1e2333; border: 2px solid #343b54; border-radius: 16px; padding: 14px; box-shadow: 0 18px 55px rgba(0,0,0,.28); }
+      .photo-card img { width: 100%; height: 218px; object-fit: cover; border-radius: 10px; display: block; }
+      .photo-caption { margin-top: 12px; display: flex; justify-content: space-between; color: #cdd6f4; font-size: 20px; }
+      .status { color: #a6e3a1; font-size: 18px; }
+      .flow { display: grid; grid-template-columns: 340px 120px 340px 120px 340px 120px 340px; align-items: center; gap: 0; flex: 1; }
+      .node { min-height: 170px; background: #1e2333; border: 2px solid #343b54; border-radius: 16px; padding: 24px 24px 22px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 18px 48px rgba(0,0,0,.22); }
+      .node .tag { width: max-content; max-width: 100%; padding: 7px 12px; border-radius: 999px; font-size: 18px; font-weight: 800; background: #121521; border: 2px solid currentColor; }
+      .pink { color: #f5c2e7; } .blue { color: #89b4fa; } .green { color: #a6e3a1; } .orange { color: #fab387; }
+      .node h2 { font-size: 29px; line-height: 1.2; }
+      .node p { font-size: 20px; line-height: 1.45; color: #dfe5f4; }
+      .arrow { height: 3px; background: linear-gradient(90deg, #89b4fa, #a6e3a1); position: relative; margin: 0 20px; }
+      .arrow:after { content: ""; position: absolute; right: -2px; top: -8px; border-left: 16px solid #a6e3a1; border-top: 9px solid transparent; border-bottom: 9px solid transparent; }
+      .lanes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+      .lane { background: #171b29; border: 2px solid #2d344a; border-radius: 16px; padding: 22px 24px; min-height: 128px; }
+      .lane h3 { font-size: 25px; margin-bottom: 10px; }
+      .lane p { font-size: 19px; color: #cdd6f4; line-height: 1.42; }
+      .footer { display: flex; align-items: center; justify-content: space-between; color: #8c96b0; font-size: 20px; }
+      .legend { display: flex; gap: 20px; align-items: center; }
+      .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; background: #a6e3a1; }
+      code { font-family: monospace; color: #f5c2e7; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="8" data-width="1920" data-height="1080">
+      <main class="scene-content">
+        <section class="topbar">
+          <div class="title-block">
+            <div class="eyebrow">OpenClaw HAP 项目流程图</div>
+            <h1>从产品入口到 HAP 开发闭环</h1>
+            <p class="subtitle">ArkUI 页面负责课程交互，OpenClaw 负责协同执行，shell-bridge 与构建脚本完成编译、签名、部署和启动验证。</p>
+          </div>
+          <aside class="photo-card">
+            <img src="assets/product-entry.jpg" alt="产品入口界面" />
+            <div class="photo-caption"><span>产品入口界面</span><span class="status">● 服务在线</span></div>
+          </aside>
+        </section>
+
+        <section class="flow">
+          <div class="node"><span class="tag pink">入口</span><h2>学生进入智能开发导学</h2><p>选择基础版课程，查看 Shell-Bridge 与 OpenClaw Gateway 在线状态。</p></div>
+          <div class="arrow"></div>
+          <div class="node"><span class="tag blue">课程状态机</span><h2>选择关卡并确认提示词</h2><p><code>selectedTaskIndex</code> 与 <code>tutorialStep</code> 控制选关、确认、执行和复盘。</p></div>
+          <div class="arrow"></div>
+          <div class="node"><span class="tag green">OpenClaw</span><h2>发送受控任务边界</h2><p>通过 HTTP 获取 token，再用 WebSocket RPC 发送关卡任务并接收流式回复。</p></div>
+          <div class="arrow"></div>
+          <div class="node"><span class="tag orange">验收闭环</span><h2>回写进度、日志与问答</h2><p>完成后解锁下一关，右侧展示对话、源码文件和执行日志。</p></div>
+        </section>
+
+        <section class="lanes">
+          <div class="lane"><h3>第一关：编译 HAP</h3><p>运行 <code>compile_unsigned.sh</code>，生成并验证 <code>entry-unsigned.hap</code>。</p></div>
+          <div class="lane"><h3>第二关：数字签名</h3><p>执行 <code>--sign-only</code>，使用证书与 Profile 生成 <code>entry-signed.hap</code>。</p></div>
+          <div class="lane"><h3>第三关：部署启动</h3><p>通过 shell-bridge 完成卸载、安装、启动 EntryAbility 与状态验证。</p></div>
+        </section>
+
+        <footer class="footer">
+          <span>D:\DevEcoProjects\HelloHap\entry\src\main\ets\pages\Index.ets</span>
+          <div class="legend"><span><i class="dot"></i>OpenClaw Gateway :18800</span><span><i class="dot"></i>Shell-Bridge :7681</span></div>
+        </footer>
+      </main>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.from(".eyebrow, h1, .subtitle", { y: 28, opacity: 0, duration: 0.6, stagger: 0.08, ease: "power3.out" }, 0);
+      tl.from(".photo-card", { y: 24, opacity: 0, scale: 0.98, duration: 0.6, ease: "power3.out" }, 0.15);
+      tl.from(".node", { y: 36, opacity: 0, duration: 0.55, stagger: 0.12, ease: "power3.out" }, 0.45);
+      tl.from(".arrow", { scaleX: 0, transformOrigin: "left center", opacity: 0, duration: 0.42, stagger: 0.12, ease: "power2.out" }, 0.62);
+      tl.from(".lane", { y: 28, opacity: 0, duration: 0.45, stagger: 0.1, ease: "power2.out" }, 1.15);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

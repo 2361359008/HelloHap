@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="xterm.css">
+  <script src="xterm.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e2e; cursor: auto !important; }
+    #wrapper { display: flex; flex-direction: column; width: 100%; height: 100%; }
+    #term { flex: 1; width: 100%; overflow: hidden; }
+    #term .xterm-screen { pointer-events: none !important; }
+    #term textarea.xterm-helper-textarea { display: none !important; }
+    #status {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 6px 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #cdd6f4;
+      background: rgba(30, 30, 46, 0.9);
+      z-index: 100;
+      text-align: center;
+      transition: opacity 0.5s;
+    }
+    #status.connected {
+      background: rgba(30, 30, 46, 0.7);
+      color: #a6e3a1;
+    }
+    #status.error {
+      background: rgba(30, 30, 46, 0.9);
+      color: #f38ba8;
+    }
+    #status.hidden { opacity: 0; pointer-events: none; }
+    #input-bar {
+      flex-shrink: 0;
+      display: flex;
+      background: #313244;
+      padding: 4px;
+    }
+    #input-bar input {
+      flex: 1;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      border: 1px solid #585b70;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 14px;
+      outline: none;
+    }
+    #input-bar input:focus { border-color: #89b4fa; }
+    #input-bar, #input-bar * { cursor: auto !important; }
+    #input-bar button {
+      margin-left: 4px;
+      padding: 8px 12px;
+      background: #89b4fa;
+      color: #1e1e2e;
+      border: none;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .ctrl-btn {
+      background: #f38ba8 !important;
+      color: #1e1e2e !important;
+      min-width: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrapper">
+    <div id="status">Connecting...</div>
+    <div id="term"></div>
+    <div id="input-bar">
+      <button class="ctrl-btn" id="btn-tab">Tab</button>
+      <button class="ctrl-btn" id="btn-ctrlc">C-c</button>
+      <input type="text" id="cmd-input" placeholder="Type command here..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <button id="btn-send">Run</button>
+    </div>
+  </div>
+  <script>
+    const WS_URL = 'ws://localhost:7681';
+    const RECONNECT_DELAY = 3000;
+    const MAX_RECONNECT = 10;
+
+    const statusEl = document.getElementById('status');
+    const cmdInput = document.getElementById('cmd-input');
+    const btnSend = document.getElementById('btn-send');
+    const btnTab = document.getElementById('btn-tab');
+    const btnCtrlc = document.getElementById('btn-ctrlc');
+    let reconnectCount = 0;
+    let reconnectTimer = null;
+    let ws = null;
+
+    // Initialize xterm.js
+    const term = new Terminal({
+      fontSize: 14,
+      fontFamily: 'monospace',
+      cursorBlink: true,
+      cursorStyle: 'block',
+      disableStdin: true,
+      rightClickSelectsWord: false,
+      allowTransparency: true,
+      theme: {
+        background: '#1e1e2e',
+        foreground: '#cdd6f4',
+        cursor: '#f5e0dc',
+        selectionBackground: '#585b70',
+        black: '#45475a',
+        red: '#f38ba8',
+        green: '#a6e3a1',
+        yellow: '#f9e2af',
+        blue: '#89b4fa',
+        magenta: '#f5c2e7',
+        cyan: '#94e2d5',
+        white: '#bac2de',
+        brightBlack: '#585b70',
+        brightRed: '#f38ba8',
+        brightGreen: '#a6e3a1',
+        brightYellow: '#f9e2af',
+        brightBlue: '#89b4fa',
+        brightMagenta: '#f5c2e7',
+        brightCyan: '#94e2d5',
+        brightWhite: '#a6adc8'
+      },
+      scrollback: 1000,
+      allowProposedApi: true
+    });
+
+    term.open(document.getElementById('term'));
+
+    function setStatus(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = cls || '';
+      if (cls === 'connected') {
+        setTimeout(() => { statusEl.classList.add('hidden'); }, 2000);
+      }
+    }
+
+    function connect() {
+      if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        return;
+      }
+
+      setStatus('Connecting to shell-bridge...', '');
+      try {
+        ws = new WebSocket(WS_URL);
+      } catch (e) {
+        setStatus('Failed to create WebSocket: ' + e.message, 'error');
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = function() {
+        reconnectCount = 0;
+        setStatus('Connected', 'connected');
+        cmdInput.focus();
+      };
+
+      ws.onmessage = function(e) {
+        term.write(e.data);
+      };
+
+      ws.onclose = function(e) {
+        setStatus('Disconnected (code: ' + e.code + ')', 'error');
+        term.write('\r\n\x1b[31m[Disconnected]\x1b[0m\r\n');
+        scheduleReconnect();
+      };
+
+      ws.onerror = function() {
+        setStatus('Connection error', 'error');
+      };
+    }
+
+    function scheduleReconnect() {
+      if (reconnectCount >= MAX_RECONNECT) {
+        setStatus('Max reconnect attempts reached. Tap to retry.', 'error');
+        statusEl.onclick = function() {
+          reconnectCount = 0;
+          connect();
+        };
+        return;
+      }
+      reconnectCount++;
+      const delay = RECONNECT_DELAY * reconnectCount;
+      setStatus('Reconnecting in ' + (delay / 1000) + 's... (' + reconnectCount + '/' + MAX_RECONNECT + ')', 'error');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, delay);
+    }
+
+    // Tap on terminal area -> focus input box
+    document.getElementById('term').addEventListener('click', function() {
+      cmdInput.focus();
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', function() {
+      try { term.resize(term.cols, term.rows); } catch(e) {}
+    });
+
+    // Input bar logic
+    function sendCmd() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(cmdInput.value + '\n');
+        cmdInput.value = '';
+        cmdInput.focus();
+      }
+    }
+
+    btnSend.addEventListener('click', sendCmd);
+    cmdInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); sendCmd(); }
+    });
+    btnTab.addEventListener('click', function() {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send('\t');
+      cmdInput.focus();
+    });
+    btnCtrlc.addEventListener('click', function() {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send('\x03');
+      cmdInput.focus();
+    });
+
+    // Start connection
+    term.write('\x1b[1;34m=== OpenHarmony Shell Terminal ===\x1b[0m\r\n');
+    term.write('\x1b[90mConnecting to ws://localhost:7681...\x1b[0m\r\n\r\n');
+    connect();
+  </script>
+</body>
+</html>

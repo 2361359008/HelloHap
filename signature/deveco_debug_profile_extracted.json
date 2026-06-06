@@ -1,0 +1,31 @@
+{
+  "verifiedPassed": true,
+  "message": "OK",
+  "content": {
+    "version-name": "2.0.0",
+    "version-code": 2,
+    "app-distribution-type": "os_integration",
+    "uuid": "5027b99e-5f9e-465d-9508-a9e0134ffe18",
+    "validity": {
+      "not-before": 1594865258,
+      "not-after": 1689473258
+    },
+    "type": "release",
+    "bundle-info": {
+      "developer-id": "OpenHarmony",
+      "distribution-certificate": "-----BEGIN CERTIFICATE-----\nMIICMzCCAbigAwIBAgIIITNN2yqBk8kwCgYIKoZIzj0EAwMwYzELMAkGA1UEBhMC\nQ04xFDASBgNVBAoTC09wZW5IYXJtb255MRkwFwYDVQQLExBPcGVuSGFybW9ueSBU\nZWFtMSMwIQYDVQQDExpPcGVuSGFybW9ueSBBcHBsaWNhdGlvbiBDQTAeFw0yNjA0\nMjcxMTMyMzJaFw0zNjA0MjQxMTMyMzJaMEoxFTATBgNVBAMMDGlkZV9kZW1vX2Fw\ncDENMAsGA1UECxMEVW5pdDEVMBMGA1UEChMMT3JnYW5pemF0aW9uMQswCQYDVQQG\nEwJDTjB2MBAGByqGSM49AgEGBSuBBAAiA2IABOiSUBV6WeqmHj0o3/Hrd9sIehsS\nS82s8xfWPTEpZ76AN4gZ4H6XPP/ee4QDbVimC+J9CQA1spqvuE2oalBoueLyN5Lz\nc0nzZBJ9ekGcBDjWsu+j9GUycC8Qq6MoLD9JnaNSMFAwHQYDVR0OBBYEFOi2p5/P\ng68LnGjTZfl+bWCq4WJWMA4GA1UdDwEB/wQEAwIHgDAfBgNVHSMEGDAWgBTbhrci\nFtULoUu33SV7ufEFfaItRzAKBggqhkjOPQQDAwNpADBmAjEA7uWxIDtckA4cV48U\nDrufB49ECnNVDPaDNrZvP9zYQWcYFaFN2XZwSdpfroDFeKpiAjEAsC8TGUjWVA+O\ncI+tAicoVaEkFRSEaJ39hwFv/Pj5Q2k1Fpk5bFYl29mBHqEw41OK\n-----END CERTIFICATE-----\n",
+      "bundle-name": "com.openclaw.learnhap",
+      "apl": "normal",
+      "app-feature": "hos_normal_app"
+    },
+    "acls": {
+      "allowed-acls": [
+        ""
+      ]
+    },
+    "permissions": {
+      "restricted-permissions": []
+    },
+    "issuer": "pki_internal"
+  }
+}
