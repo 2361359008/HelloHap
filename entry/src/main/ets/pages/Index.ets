@@ -99,7 +99,7 @@ struct Index {
       ? '教学项目已恢复到初始状态，可以重新开始学习。'
       : '暂时无法恢复教学项目，请稍后重试。';
     this.courseResetNoticeVisible = true;
-    await this.delay(success ? 3200 : 4200);
+    await this.delay(1000);
     if (sequence === this.courseResetNoticeSequence) {
       this.courseResetNoticeVisible = false;
     }
