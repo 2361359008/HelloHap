@@ -1,112 +1,19 @@
 import { webview } from '@kit.ArkWeb';
-import { http, webSocket } from '@kit.NetworkKit';
+import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
-
-class ChatMessage {
-  sender: string = '';
-  text: string = '';
-  constructor(sender: string, text: string) {
-    this.sender = sender;
-    this.text = text;
-  }
-}
-
-class PendingRequest {
-  id: string = '';
-  resolve: (value: string) => void = () => {};
-  reject: (err: Error) => void = () => {};
-  constructor(id: string, resolve: (value: string) => void, reject: (err: Error) => void) {
-    this.id = id;
-    this.resolve = resolve;
-    this.reject = reject;
-  }
-}
-
-class OpenClawRpcAuth {
-  token: string = '';
-  constructor(token: string) {
-    this.token = token;
-  }
-}
-
-class OpenClawRpcClient {
-  id: string = 'openclaw-control-ui';
-  version: string = 'control-ui';
-  platform: string = 'openharmony';
-  mode: string = 'webchat';
-  instanceId: string = 'openharmony-hap-tutorial';
-}
-
-class OpenClawConnectParams {
-  minProtocol: number = 4;
-  maxProtocol: number = 4;
-  client: OpenClawRpcClient = new OpenClawRpcClient();
-  role: string = 'operator';
-  scopes: Array<string> = ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'];
-  caps: Array<string> = ['tool-events'];
-  auth: OpenClawRpcAuth = new OpenClawRpcAuth('');
-  userAgent: string = 'OpenHarmony HAP';
-  locale: string = 'zh-CN';
-
-  constructor(token: string) {
-    this.auth = new OpenClawRpcAuth(token);
-  }
-}
-
-class OpenClawHistoryParams {
-  sessionKey: string = '';
-  limit: number = 100;
-  maxChars: number = 120000;
-
-  constructor(sessionKey: string) {
-    this.sessionKey = sessionKey;
-  }
-}
-
-class OpenClawSendParams {
-  sessionKey: string = '';
-  sessionId?: string;
-  message: string = '';
-  deliver: boolean = false;
-  idempotencyKey: string = '';
-
-  constructor(sessionKey: string, sessionId: string, message: string, runId: string) {
-    this.sessionKey = sessionKey;
-    if (sessionId) {
-      this.sessionId = sessionId;
-    }
-    this.message = message;
-    this.idempotencyKey = runId;
-  }
-}
-
-class OpenClawRpcRequest {
-  type: string = 'req';
-  id: string = '';
-  method: string = '';
-  params: Object = new Object();
-
-  constructor(id: string, method: string, params: Object) {
-    this.id = id;
-    this.method = method;
-    this.params = params;
-  }
-}
-
-class OpenClawEmptyParams {
-}
+import { ChatMessage } from '../model/OpenClawTypes';
+import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
+import { OpenClawClient } from '../service/OpenClawClient';
+import { HomeEntryView } from '../view/HomeEntryView';
+import { AdvancedMenuView } from '../view/AdvancedMenuView';
+import { WorkspaceView } from '../view/WorkspaceView';
 
 @Entry
 @Component
 struct Index {
   controller: webview.WebviewController = new webview.WebviewController();
   chatWebController: webview.WebviewController = new webview.WebviewController();
-  @State openClawToken: string = '';
-  ws: webSocket.WebSocket | null = null;
-  pendingRequests: Array<PendingRequest> = [];
-  openClawSessionId: string = '';
-  agentTurnResolve: ((value: string) => void) | null = null;
-  agentTurnReject: ((err: Error) => void) | null = null;
+  private client: OpenClawClient = new OpenClawClient();
   @State currentMode: string = ''; // '', 'terminal', 'openclaw', 'tutorial'
 
   // --- Tutorial States ---
@@ -162,7 +69,12 @@ struct Index {
   @State chatInput: string = '';
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
-  @State openClawSessionKey: string = '';
+
+  aboutToAppear(): void {
+    this.client.onChatEvent = (payload: Record<string, Object>) => {
+      this.handleChatStreamEvent(payload);
+    };
+  }
 
   // Async helper for delays
   delay(ms: number): Promise<void> {
@@ -193,42 +105,11 @@ struct Index {
     }
   }
 
-  async requestText(url: string, method: http.RequestMethod, body: string = '', headers: Record<string, string> = {}): Promise<string> {
-    let client = http.createHttp();
-    try {
-      let response = await client.request(url, {
-        method: method,
-        header: headers,
-        extraData: body,
-        connectTimeout: 10000,
-        readTimeout: 600000
-      });
-      let status = response.responseCode;
-      let result = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
-      if (status < 200 || status >= 300) {
-        throw new Error('HTTP ' + status + ': ' + result);
-      }
-      return result;
-    } finally {
-      client.destroy();
-    }
-  }
-
-  async getOpenClawToken(): Promise<string> {
-    let token = await this.requestText('http://127.0.0.1:7681/token', http.RequestMethod.GET);
-    token = token.trim();
-    if (!token || token.indexOf('error') === 0) {
-      throw new Error(token || 'empty token');
-    }
-    this.openClawToken = token;
-    return token;
-  }
-
   async fetchBoardSourceFile(): Promise<void> {
     this.sourceFileLoading = true;
     this.sourceFileError = '';
     try {
-      let content = await this.requestText(this.boardIndexEtsUrl, http.RequestMethod.GET);
+      let content = await this.client.requestText(this.boardIndexEtsUrl, http.RequestMethod.GET);
       if (!content || content.indexOf('error:') === 0 || content.indexOf('path not allowed') === 0 ||
         content.indexOf('file not found') === 0 || content.indexOf('missing path') === 0) {
         throw new Error(content.trim() || 'empty source file response');
@@ -249,262 +130,6 @@ struct Index {
     }
   }
 
-  getSourceTabText(): string {
-    if (this.selectedTaskIndex === 0) {
-      return '// 等待加载源码...';
-    }
-    if (this.sourceFileLoading) {
-      return '// 正在从板端读取源码文件...\n// /data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets';
-    }
-    if (this.sourceFileError) {
-      return '// 板端源码读取失败\n' +
-        '// ' + this.sourceFileError + '\n' +
-        '// 请确认 shell-bridge (:7681) 已部署 /read-file 接口后重试';
-    }
-    if (this.sourceFileContent) {
-      return this.sourceFileContent;
-    }
-    return '// 尚未加载板端源码，请切换到本页或点击刷新';
-  }
-
-  buildOpenClawPrompt(): string {
-    let taskName = this.selectedTaskIndex === 1 ? '第一关：编译 HAP' :
-      (this.selectedTaskIndex === 2 ? '第二关：签名 HAP' : '第三关：部署与生命周期调试');
-    
-    let prompt = `你是在此 OpenHarmony 开发板上运行的 OpenClaw AI 协同开发助手。请为 HAP 教学应用启动一轮真实的协同开发任务。
-当前任务：${taskName}
-选择标题：${this.selectedTaskTitle}
-学员自定义提示词：
-${this.selectedTaskPrompt}
-
-当前 UI 交互输入：
-- 预览文本 / 行为目标 (previewText): ${this.previewText}
-- 预览子文本 / SDK版本 (previewSubText): ${this.previewSubText}
-
-`;
-
-    if (this.selectedTaskIndex === 1) {
-      prompt += `第一关动作边界（必须严格执行）：
-1. 必须先读取动作记忆文件：/data/local/tmp/.openclaw/workspace/memory/oh61-level1-compile.md
-2. 只允许运行编译脚本：sh /data/local/tmp/oh61-hapbuild/compile_unsigned.sh
-3. 编译后只允许验证产物：ls -lh /data/local/tmp/entry-unsigned.hap
-4. 不得修改源码，不得签名，不得安装，不得启动应用，不得读取第二关或第三关记忆文件。
-
-`;
-    } else if (this.selectedTaskIndex === 2) {
-      prompt += `第二关动作边界（必须严格执行）：
-1. 必须先读取动作记忆文件：/data/local/tmp/.openclaw/workspace/memory/oh61-level2-sign.md
-2. 只允许运行签名动作：sh /data/local/tmp/oh61-hapbuild/build_sign_install_run.sh --sign-only
-3. 签名后只允许验证产物：ls -lh /data/local/tmp/entry-signed.hap
-4. 不得修改源码，不得重新编译，不得安装，不得启动应用，不得读取第一关或第三关记忆文件。
-
-`;
-    } else if (this.selectedTaskIndex === 3) {
-      prompt += `第三关动作边界（必须严格执行）：
-1. 必须先读取动作记忆文件：/data/local/tmp/.openclaw/workspace/memory/oh61-level3-deploy.md
-2. 只允许围绕 /data/local/tmp/entry-signed.hap 执行卸载、安装、启动与状态验证。
-3. 只允许使用第三关记忆指定的 shell-bridge 客户端或部署脚本完成本关动作。
-4. 不得修改源码，不得重新编译，不得重新签名，不得读取第一关或第二关记忆文件，不得提前扩展额外调试任务。
-
-`;
-    }
-
-    prompt += `HAP 工程目录配置信息：
-- 主机同步目录：/data/local/tmp/oh61-hapbuild/project
-- Docker 内编译目录：/root/HAP-BuildKit/project
-- 主页面路径：entry/src/main/ets/pages/Index.ets
-
-请严格按当前关卡动作记忆执行，不要跨关卡推进，不要补做下一关。任务完成后，用精炼中文汇报真实执行结果和产物状态。`;
-    
-    return prompt;
-  }
-
-  extractOpenClawReply(raw: string): string {
-    try {
-      let data: Record<string, Object> = JSON.parse(raw);
-      let choices = data['choices'] as Array<Record<string, Object>>;
-      if (choices && choices.length > 0) {
-        let message = choices[0]['message'] as Record<string, Object>;
-        if (message && message['content']) {
-          return String(message['content']);
-        }
-      }
-      if (data['output_text']) {
-        return String(data['output_text']);
-      }
-      return raw.substring(0, 600);
-    } catch (e) {
-      return raw.substring(0, 600);
-    }
-  }
-
-  setupWebSocket(token: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.ws) {
-        resolve();
-        return;
-      }
-      this.ws = webSocket.createWebSocket();
-      let hasResolved = false;
-
-      this.ws.on('open', (err: Object) => {
-        if (err) {
-          if (!hasResolved) {
-            hasResolved = true;
-            reject(new Error('WebSocket open error: ' + JSON.stringify(err)));
-          }
-          return;
-        }
-        
-        let reqId = 'handshake-' + Date.now().toString();
-        let params = new OpenClawConnectParams(token);
-        let req = new OpenClawRpcRequest(reqId, 'connect', params);
-        this.ws?.send(JSON.stringify(req), (sendErr: Object) => {
-          if (sendErr) {
-            if (!hasResolved) {
-              hasResolved = true;
-              reject(new Error('WebSocket send handshake error: ' + JSON.stringify(sendErr)));
-            }
-          }
-        });
-      });
-
-      this.ws.on('message', (err: Object, value: string | ArrayBuffer) => {
-        if (err) {
-          console.error('WebSocket message error: ' + JSON.stringify(err));
-          return;
-        }
-        let rawStr = '';
-        if (typeof value === 'string') {
-          rawStr = value;
-        } else {
-          rawStr = String(value);
-        }
-        this.handleRpcMessage(rawStr, resolve, reject);
-      });
-
-      this.ws.on('close', (err: Object, value: Object) => {
-        console.log('WebSocket closed: ' + JSON.stringify(value));
-        this.ws = null;
-        this.pendingRequests.forEach(req => req.reject(new Error('WebSocket disconnected')));
-        this.pendingRequests = [];
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-      });
-
-      this.ws.on('error', (err: Object) => {
-        console.error('WebSocket error: ' + JSON.stringify(err));
-        if (!hasResolved) {
-          hasResolved = true;
-          reject(new Error('WebSocket connection error: ' + JSON.stringify(err)));
-        }
-        this.ws = null;
-        this.pendingRequests.forEach(req => req.reject(new Error('WebSocket error')));
-        this.pendingRequests = [];
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-      });
-
-      try {
-        this.ws.connect('ws://127.0.0.1:18800', (connectErr: Object, isConnected: Object) => {
-          if (connectErr) {
-            if (!hasResolved) {
-              hasResolved = true;
-              reject(new Error('WebSocket connect failed: ' + JSON.stringify(connectErr)));
-            }
-          }
-        });
-      } catch (connectException) {
-        this.ws.connect('ws://127.0.0.1:18800')
-          .then(() => {
-            console.log('WebSocket connect promise resolved');
-          })
-          .catch((promiseErr: Error) => {
-            if (!hasResolved) {
-              hasResolved = true;
-              reject(new Error('WebSocket connect promise failed: ' + promiseErr.message));
-            }
-          });
-      }
-    });
-  }
-
-  handleRpcMessage(raw: string, handshakeResolve: () => void, handshakeReject: (err: Error) => void) {
-    try {
-      let msg = JSON.parse(raw) as Record<string, Object>;
-      let type = msg['type'] as string;
-      let id = msg['id'] as string;
-
-      if (type === 'res') {
-        let ok = msg['ok'] as boolean;
-        let payload = msg['payload'] as Object;
-        let errorVal = msg['error'] as Object;
-        let errorStr = errorVal ? JSON.stringify(errorVal) : (msg['reason'] ? String(msg['reason']) : 'unknown');
-
-        if (id && id.indexOf('handshake-') === 0) {
-          if (ok) {
-            handshakeResolve();
-          } else {
-            handshakeReject(new Error('Handshake failed: ' + errorStr));
-          }
-          return;
-        }
-
-        for (let i = 0; i < this.pendingRequests.length; i++) {
-          let req = this.pendingRequests[i];
-          if (req.id === id) {
-            this.pendingRequests.splice(i, 1);
-            if (ok) {
-              req.resolve(JSON.stringify(payload));
-            } else {
-              req.reject(new Error('RPC request failed: ' + errorStr));
-            }
-            break;
-          }
-        }
-      } else if (type === 'event') {
-        let eventName = msg['event'] as string;
-        let payload = msg['payload'] as Record<string, Object>;
-
-        if (eventName === 'chat' && payload) {
-          this.handleChatStreamEvent(payload);
-        }
-      }
-    } catch (e) {
-      console.error('Error handling RPC message: ' + (e as Error).message);
-    }
-  }
-
-  extractMessageText(message: Record<string, Object> | null): string {
-    if (!message) {
-      return '';
-    }
-    if (message['text'] && typeof message['text'] === 'string') {
-      return String(message['text']);
-    }
-    if (message['content']) {
-      let contentVal = message['content'];
-      if (Array.isArray(contentVal)) {
-        let contentArr = contentVal as Array<Object>;
-        let textParts: Array<string> = [];
-        for (let i = 0; i < contentArr.length; i++) {
-          let part = contentArr[i] as Record<string, Object>;
-          if (part) {
-            if (part['type'] === 'text' && part['text']) {
-              textParts.push(String(part['text']));
-            } else if (typeof part === 'string') {
-              textParts.push(part);
-            }
-          }
-        }
-        return textParts.join('');
-      } else if (typeof contentVal === 'string') {
-        return contentVal;
-      }
-    }
-    return '';
-  }
-
   handleChatStreamEvent(payload: Record<string, Object>) {
     let state = payload['state'] as string;
     let text = '';
@@ -512,7 +137,7 @@ ${this.selectedTaskPrompt}
     if (payload['text'] && typeof payload['text'] === 'string') {
       text = String(payload['text']);
     } else if (payload['message']) {
-      text = this.extractMessageText(payload['message'] as Record<string, Object>);
+      text = this.client.extractMessageText(payload['message'] as Record<string, Object>);
     }
 
     if (state === 'delta') {
@@ -542,11 +167,7 @@ ${this.selectedTaskPrompt}
       }
       this.chatMessages = [...this.chatMessages];
       
-      if (this.agentTurnResolve) {
-        this.agentTurnResolve(text);
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-      }
+      this.client.completeTurn(text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
     } else if (state === 'error' || state === 'aborted') {
@@ -557,158 +178,9 @@ ${this.selectedTaskPrompt}
       this.chatMessages.push(new ChatMessage('assistant', errorMsg));
       this.chatMessages = [...this.chatMessages];
       
-      if (this.agentTurnReject) {
-        this.agentTurnReject(new Error(errorMsg));
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-      }
+      this.client.failTurn(new Error(errorMsg));
       this.openClawBusy = false;
     }
-  }
-
-  sendRpcRequest(method: string, params: Object): Promise<string> {
-    return new Promise(async (resolve, reject) => {
-      try {
-        let token = await this.getOpenClawToken();
-        await this.setupWebSocket(token);
-
-        let reqId = 'req-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
-        let request = new OpenClawRpcRequest(reqId, method, params);
-        
-        let pending = new PendingRequest(reqId, resolve, reject);
-        this.pendingRequests.push(pending);
-
-        this.ws?.send(JSON.stringify(request), (err: Object) => {
-          if (err) {
-            let idx = this.pendingRequests.indexOf(pending);
-            if (idx >= 0) this.pendingRequests.splice(idx, 1);
-            reject(new Error('Send failed: ' + JSON.stringify(err)));
-          }
-        });
-      } catch (e) {
-        reject(e as Error);
-      }
-    });
-  }
-
-  sendOpenClawAgentTurn(): Promise<string> {
-    return new Promise(async (resolve, reject) => {
-      this.agentTurnResolve = resolve;
-      this.agentTurnReject = reject;
-
-      try {
-        let token = await this.getOpenClawToken();
-        await this.setupWebSocket(token);
-
-        if (!this.openClawSessionKey) {
-          let createRes = await this.sendRpcRequest('sessions.create', new OpenClawEmptyParams());
-          let createPayload = JSON.parse(createRes) as Record<string, Object>;
-          let sKey = '';
-          if (createPayload['key']) {
-            sKey = String(createPayload['key']);
-          } else if (createPayload['sessionKey']) {
-            sKey = String(createPayload['sessionKey']);
-          } else if (createPayload['session']) {
-            let sObj = createPayload['session'] as Record<string, Object>;
-            if (sObj && sObj['key']) {
-              sKey = String(sObj['key']);
-            }
-          }
-          this.openClawSessionKey = sKey;
-        }
-
-        let histRes = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.openClawSessionKey));
-        let histPayload = JSON.parse(histRes) as Record<string, Object>;
-        let sessId = '';
-        if (histPayload['sessionId']) {
-          sessId = String(histPayload['sessionId']);
-        } else if (histPayload['session']) {
-          let sObj = histPayload['session'] as Record<string, Object>;
-          if (sObj && sObj['id']) {
-            sessId = String(sObj['id']);
-          }
-        }
-        this.openClawSessionId = sessId;
-
-        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在连接并开始分析...'));
-        this.chatMessages = [...this.chatMessages];
-
-        let runId = 'run-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
-        let prompt = this.selectedTaskPrompt;
-        let sendParams = new OpenClawSendParams(this.openClawSessionKey, this.openClawSessionId, prompt, runId);
-        
-        await this.sendRpcRequest('chat.send', sendParams);
-      } catch (e) {
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-        reject(e as Error);
-      }
-    });
-  }
-
-  buildPracticeFullFlowPrompt(): string {
-    return '执行以下命令并等待完成：\n\n' +
-      'sh /data/local/tmp/oh61-hapbuild/practice_fullflow.sh\n\n' +
-      '要求：\n' +
-      '1. 只执行这一条命令。\n' +
-      '2. 不要执行任何额外命令。\n' +
-      '3. 等待命令执行完毕。\n' +
-      '4. 命令成功则只回复：练习关卡执行成功。\n' +
-      '5. 命令失败则只回复：练习关卡执行失败，并附上脚本原始输出。';
-  }
-
-  sendOpenClawChatText(userMsg: string): Promise<string> {
-    return new Promise(async (resolve, reject) => {
-      this.agentTurnResolve = resolve;
-      this.agentTurnReject = reject;
-
-      try {
-        let token = await this.getOpenClawToken();
-        await this.setupWebSocket(token);
-
-        if (!this.openClawSessionKey) {
-          let createRes = await this.sendRpcRequest('sessions.create', new OpenClawEmptyParams());
-          let createPayload = JSON.parse(createRes) as Record<string, Object>;
-          let sKey = '';
-          if (createPayload['key']) {
-            sKey = String(createPayload['key']);
-          } else if (createPayload['sessionKey']) {
-            sKey = String(createPayload['sessionKey']);
-          } else if (createPayload['session']) {
-            let sObj = createPayload['session'] as Record<string, Object>;
-            if (sObj && sObj['key']) {
-              sKey = String(sObj['key']);
-            }
-          }
-          this.openClawSessionKey = sKey;
-        }
-
-        let histRes = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.openClawSessionKey));
-        let histPayload = JSON.parse(histRes) as Record<string, Object>;
-        let sessId = '';
-        if (histPayload['sessionId']) {
-          sessId = String(histPayload['sessionId']);
-        } else if (histPayload['session']) {
-          let sObj = histPayload['session'] as Record<string, Object>;
-          if (sObj && sObj['id']) {
-            sessId = String(sObj['id']);
-          }
-        }
-        this.openClawSessionId = sessId;
-
-        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
-        this.chatMessages = [...this.chatMessages];
-
-        let runId = 'run-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
-        let sendParams = new OpenClawSendParams(this.openClawSessionKey, this.openClawSessionId, userMsg, runId);
-        
-        await this.sendRpcRequest('chat.send', sendParams);
-      } catch (e) {
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
-        reject(e as Error);
-      }
-    });
   }
 
   async sendChatMessage() {
@@ -737,7 +209,7 @@ ${this.selectedTaskPrompt}
     try {
       let sendMsg = userMsg;
       if (this.selectedTaskIndex === 4 && userMsg === '请将 HAP 主页面内容修改为 hello world，然后按完整流程执行：编译未签名 HAP、签名生成已签名 HAP、卸载旧应用、安装新 HAP 并启动 EntryAbility。请在执行前说明会修改的文件和命令边界，执行后汇报每一步真实结果。') {
-        sendMsg = this.buildPracticeFullFlowPrompt();
+        sendMsg = buildPracticeFullFlowPrompt();
       } else if (this.selectedTaskIndex === 1 && this.tutorialStep === 3 && this.highestCompletedLevel >= 1 && !this.level1QaPromptInjected) {
         sendMsg = '请先读取第一关答疑记忆文件：/data/local/tmp/.openclaw/workspace/memory/oh61-level1-compile-qa.md。' +
           '本轮是学生课后自由提问，不是关卡触发任务。请只解释问题，不要重新编译、签名、安装或启动应用。\n\n学生问题：' + userMsg;
@@ -752,38 +224,16 @@ ${this.selectedTaskPrompt}
         this.level3QaPromptInjected = true;
         this.level3QaPromptInjected = true;
       }
-      await this.sendOpenClawChatText(sendMsg);
+      await this.client.startTurn(sendMsg, () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
+        this.chatMessages = [...this.chatMessages];
+      });
       this.openClawBusy = false;
     } catch (error) {
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] chat failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
       this.openClawBusy = false;
-    }
-  }
-
-  getStepLabel(stepNum: number): string {
-    if (this.selectedTaskIndex === 1) {
-      if (stepNum === 1) return '分析项目工程结构与资源依赖';
-      if (stepNum === 2) return '加载资源文件并生成索引表';
-      if (stepNum === 3) return '执行静态检查（CodeLinter）';
-      if (stepNum === 4) return '执行 hvigorw assembleHap 编译';
-      if (stepNum === 5) return '打包生成未签名包 unsigned.hap';
-      return '验证 HAP 构建产物完整性';
-    } else if (this.selectedTaskIndex === 2) {
-      if (stepNum === 1) return '载入本地 .p12 私钥库';
-      if (stepNum === 2) return '解析 Profile 描述证书 json';
-      if (stepNum === 3) return '校验绑定包名（BundleName）匹配';
-      if (stepNum === 4) return '调用 sign-profile 签发 debug.p7b';
-      if (stepNum === 5) return '执行 hap-sign-tool 签署 app.hap';
-      return '生成并验证已签名包 signed.hap';
-    } else {
-      if (stepNum === 1) return '轮询检测本地物理 HDC 目标';
-      if (stepNum === 2) return '开启调试桥套接字数据通道';
-      if (stepNum === 3) return '验证已签名 HAP 产物';
-      if (stepNum === 4) return '调用安装客户端执行 bm install';
-      if (stepNum === 5) return '调用 aa 工具拉起 EntryAbility';
-      return '返回板端生命周期运行状态';
     }
   }
 
@@ -809,19 +259,7 @@ ${this.selectedTaskPrompt}
   }
 
   clearCourseState(): void {
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch (e) {
-        console.error('Error closing WebSocket: ' + (e as Error).message);
-      }
-      this.ws = null;
-    }
-    this.pendingRequests.forEach(req => req.reject(new Error('Course reset')));
-    this.pendingRequests = [];
-    this.openClawSessionId = '';
-    this.agentTurnResolve = null;
-    this.agentTurnReject = null;
+    this.client.reset();
 
     this.selectedTaskIndex = 0;
     this.maxUnlockedLevel = 1;
@@ -842,7 +280,6 @@ ${this.selectedTaskPrompt}
     this.chatInput = '';
     this.openClawBusy = false;
     this.studentQuestionEnabled = false;
-    this.openClawSessionKey = '';
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -854,7 +291,7 @@ ${this.selectedTaskPrompt}
     }
     this.courseResetting = true;
     try {
-      await this.requestText(
+      await this.client.requestText(
         'http://127.0.0.1:7681/reset-course',
         http.RequestMethod.GET
       );
@@ -1094,7 +531,10 @@ ${this.selectedTaskPrompt}
 
     let reply = '';
     try {
-      reply = await this.sendOpenClawAgentTurn();
+      reply = await this.client.startTurn(this.selectedTaskPrompt, () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在连接并开始分析...'));
+        this.chatMessages = [...this.chatMessages];
+      });
       this.currentExecutionLog += '[openclaw] real agent turn accepted.\n';
       this.currentExecutionLog += '[openclaw] reply: ' + reply + '\n';
     } catch (error) {
@@ -1132,154 +572,23 @@ ${this.selectedTaskPrompt}
     this.fetchBoardSourceFile();
   }
 
-  // 根据所选任务与输入动态生成实时源码
-  getGeneratedCode(): string {
-    if (this.selectedTaskIndex === 4) {
-      return `# [练习关卡：练习提示词]\n` +
-             `# 选择左侧提示词后，会自动填入底部输入框。\n` +
-             `# 当前输入框内容：\n` +
-             `${this.chatInput}`;
-    }
-
-    if (this.selectedTaskIndex === 1) {
-      return `// [编译工作区：D:\\DevEcoProjects\\HelloHap\\AppScope\\app.json5]\n` +
-             `{\n` +
-             `  "app": {\n` +
-             `    "bundleName": "com.openclaw.learnhap",\n` +
-             `    "vendor": "example",\n` +
-             `    "versionCode": 1000000,\n` +
-             `    "versionName": "1.0.0"\n` +
-             `  }\n` +
-             `}\n\n` +
-             `// [主编页面：entry/src/main/ets/pages/Index.ets]\n` +
-             `@Entry\n` +
-             `@Component\n` +
-             `struct IndexPage {\n` +
-             `  build() {\n` +
-             `    Column() {\n` +
-             `      Text("${this.previewText}")\n` +
-             `        .fontSize(36)\n` +
-             `        .fontWeight(FontWeight.Bold)\n` +
-             `        .fontColor("#cdd6f4")\n` +
-             `    }\n` +
-             `    .width('100%')\n` +
-             `    .height('100%')\n` +
-             `    .justifyContent(FlexAlign.Center)\n` +
-             `    .backgroundColor('#1e1e2e')\n` +
-             `  }\n` +
-             `}\n\n` +
-             `// === HVIGOR 构建命令 ===\n` +
-             `node "D:\\DevEcoStudio\\tools\\hvigor\\bin\\hvigorw.js" --mode module -p product=default assembleHap --analyze=normal`;
-    } else if (this.selectedTaskIndex === 2) {
-      return `# 步骤一：使用私钥签名应用证书描述 Profile (.p7b)\n` +
-             `& "D:\\DevEcoStudio\\DevEco Studio\\jbr\\bin\\java.exe" -jar "D:\\OpenHarmony\\18\\toolchains\\lib\\hap-sign-tool.jar" sign-profile \`\n` +
-             `  -keyAlias "openharmony application ca" \`\n` +
-             `  -keyPwd 123456 \`\n` +
-             `  -mode localSign \`\n` +
-             `  -signAlg SHA256withECDSA \`\n` +
-             `  -keystoreFile "D:\\DevEcoProjects\\HelloHap\\signature\\OpenHarmony.p12" \`\n` +
-             `  -keystorePwd 123456 \`\n` +
-             `  -profileCertFile "D:\\DevEcoProjects\\HelloHap\\signature\\OpenHarmonyCA.pem" \`\n` +
-             `  -inFile "D:\\DevEcoProjects\\HelloHap\\signature\\HelloHap_debug_profile.json" \`\n` +
-             `  -outFile "D:\\DevEcoProjects\\HelloHap\\signature\\HelloHap_debug.p7b"\n\n` +
-             `# 步骤二：使用开发者私钥对编译出的未签名 HAP 进行正式签名\n` +
-             `& "D:\\DevEcoStudio\\DevEco Studio\\jbr\\bin\\java.exe" -jar "D:\\OpenHarmony\\18\\toolchains\\lib\\hap-sign-tool.jar" sign-app \`\n` +
-             `  -keyAlias "${this.previewSubText}" \`\n` +
-             `  -signAlg SHA256withECDSA \`\n` +
-             `  -mode localSign \`\n` +
-             `  -appCertFile "D:\\DevEcoProjects\\HelloHap\\signature\\OpenHarmonyAppChain.pem" \`\n` +
-             `  -profileFile "D:\\DevEcoProjects\\HelloHap\\signature\\HelloHap_debug.p7b" \`\n` +
-             `  -inFile "D:\\DevEcoProjects\\HelloHap\\entry\\build\\default\\outputs\\default\\entry-default-unsigned.hap" \`\n` +
-             `  -keystoreFile "D:\\DevEcoProjects\\HelloHap\\signature\\OpenHarmony.p12" \`\n` +
-             `  -outFile "D:\\DevEcoProjects\\HelloHap\\entry\\build\\default\\outputs\\default\\entry-default-signed.hap" \`\n` +
-             `  -keyPwd 123456 \`\n` +
-             `  -keystorePwd 123456 \`\n` +
-             `  -signCode 1`;
-    } else if (this.selectedTaskIndex === 3) {
-      if (this.previewText === 'install') {
-        return `# [HDC 动作：将 HAP 传输并覆盖安装到物理开发板]\n` +
-               `hdc ${this.previewSubText ? '-t ' + this.previewSubText : ''} install -r "D:\\DevEcoProjects\\HelloHap\\entry\\build\\default\\outputs\\default\\entry-default-signed.hap"`;
-      } else if (this.previewText === 'start') {
-        return `# [HDC 动作：使用底层 aa 工具启动应用 EntryAbility]\n` +
-               `hdc ${this.previewSubText ? '-t ' + this.previewSubText : ''} shell "aa start -a EntryAbility -b com.openclaw.learnhap"`;
-      } else {
-        return `# [HDC 动作：一键彻底卸载目标包名的沙箱与应用程序]\n` +
-               `hdc ${this.previewSubText ? '-t ' + this.previewSubText : ''} uninstall "com.openclaw.learnhap"`;
-      }
-    }
-    return '';
-  }
-
   build() {
     Column() {
       if (this.currentMode === '') {
         // === Selection & Entry Home Page ===
-        Column() {
-          // Title Section
-          Text('OpenClaw 智能开发向导')
-            .fontSize(28)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#cdd6f4')
-            .margin({ top: 80, bottom: 10 })
-
-          Text('专为 OpenHarmony ArkUI 打造的 AI 协同学习平台')
-            .fontSize(14)
-            .fontColor('#a6adc8')
-            .margin({ bottom: 60 })
-
-          // Selection Options
-          // 1. Interactive Tutorial Mode - Simple (Beginner Edition)
-          Button('交互式学习（基础版）')
-            .width('70%')
-            .height(56)
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .backgroundColor('#f5c2e7') // Pink
-            .fontColor('#1e1e2e')
-            .borderRadius(12)
-            .margin({ bottom: 20 })
-            .onClick(() => {
-              this.currentMode = 'tutorial';
-              this.tutorialStep = 0;
-              this.selectedTaskIndex = 0;
-            })
-
-          // 2. Interactive Tutorial Mode - Advanced (Pro Edition)
-          Button('交互式学习（高级版）')
-            .width('70%')
-            .height(56)
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .backgroundColor('#fab387') // Peach
-            .fontColor('#1e1e2e')
-            .borderRadius(12)
-            .margin({ bottom: 20 })
-            .onClick(() => {
-              this.currentMode = 'advanced';
-              this.tutorialStep = 0;
-              this.selectedTaskIndex = 0;
-              this.workspaceTab = 0;
-            })
-
-          // Device status indicator bar
-          Row() {
-            Row() {
-              Circle({ width: 8, height: 8 }).fill('#a6e3a1').margin({ right: 6 })
-              Text('Shell-Bridge：在线 (7681)').fontSize(12).fontColor('#a6adc8')
-            }.margin({ right: 20 })
-
-            Row() {
-              Circle({ width: 8, height: 8 }).fill('#a6e3a1').margin({ right: 6 })
-              Text('OpenClaw Gateway：运行中 (18800)').fontSize(12).fontColor('#a6adc8')
-            }
+        HomeEntryView({
+          onEnterTutorial: () => {
+            this.currentMode = 'tutorial';
+            this.tutorialStep = 0;
+            this.selectedTaskIndex = 0;
+          },
+          onEnterAdvanced: () => {
+            this.currentMode = 'advanced';
+            this.tutorialStep = 0;
+            this.selectedTaskIndex = 0;
+            this.workspaceTab = 0;
           }
-          .margin({ top: 50 })
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Start)
-        .alignItems(HorizontalAlign.Center)
-        .backgroundColor('#1e1e2e')
+        })
 
       } else if (this.currentMode === 'tutorial' || this.currentMode === 'advanced') {
         // === INTERACTIVE TUTORIAL INTERFACE (SPLIT SCREEN) ===
@@ -1363,79 +672,7 @@ ${this.selectedTaskPrompt}
               // 1. Top Section
               Column() {
                 if (this.currentMode === 'advanced') {
-                  Column() {
-                    Text('请选择高级开发模式')
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor('#cdd6f4')
-                      .margin({ bottom: 12, top: 6 })
-                      .alignSelf(ItemAlign.Start)
-
-                    Column() {
-                      Text('教学之路')
-                        .fontSize(14)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor('#fab387')
-                        .margin({ bottom: 6 })
-
-                      Text('按照进阶课程路线学习 ArkUI 项目设计与开发。')
-                        .fontSize(12)
-                        .fontColor('#a6adc8')
-                        .margin({ bottom: 12 })
-
-                      Button('进入教学之路')
-                        .width('100%')
-                        .height(34)
-                        .fontSize(12)
-                        .backgroundColor('#45475a')
-                        .fontColor('#fab387')
-                        .onClick(() => {
-                          promptAction.showToast({
-                            message: '教学之路正在开发中。',
-                            duration: 1800
-                          });
-                        })
-                    }
-                    .width('100%')
-                    .padding(14)
-                    .backgroundColor('#313244')
-                    .borderRadius(8)
-                    .margin({ bottom: 10 })
-                    .alignItems(HorizontalAlign.Start)
-
-                    Column() {
-                      Text('自由开发')
-                        .fontSize(14)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor('#89b4fa')
-                        .margin({ bottom: 6 })
-
-                      Text('进入开放式开发空间，自主规划和实现 HAP 项目。')
-                        .fontSize(12)
-                        .fontColor('#a6adc8')
-                        .margin({ bottom: 12 })
-
-                      Button('进入自由开发')
-                        .width('100%')
-                        .height(34)
-                        .fontSize(12)
-                        .backgroundColor('#45475a')
-                        .fontColor('#89b4fa')
-                        .onClick(() => {
-                          promptAction.showToast({
-                            message: '自由开发正在开发中。',
-                            duration: 1800
-                          });
-                        })
-                    }
-                    .width('100%')
-                    .padding(14)
-                    .backgroundColor('#313244')
-                    .borderRadius(8)
-                    .alignItems(HorizontalAlign.Start)
-                  }
-                  .width('100%')
-                  .padding({ left: 16, right: 16 })
+                  AdvancedMenuView()
 
                 } else if (this.tutorialStep === 0) {
                   // Step 0: Choose Course List
@@ -1724,7 +961,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step1Status === 2 ? '#a6e3a1' : (this.step1Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(1))
+                        Text(getStepLabel(this.selectedTaskIndex, 1))
                           .fontSize(13)
                           .fontColor(this.step1Status === 2 ? '#a6e3a1' : (this.step1Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -1735,7 +972,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step2Status === 2 ? '#a6e3a1' : (this.step2Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(2))
+                        Text(getStepLabel(this.selectedTaskIndex, 2))
                           .fontSize(13)
                           .fontColor(this.step2Status === 2 ? '#a6e3a1' : (this.step2Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -1746,7 +983,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step3Status === 2 ? '#a6e3a1' : (this.step3Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(3))
+                        Text(getStepLabel(this.selectedTaskIndex, 3))
                           .fontSize(13)
                           .fontColor(this.step3Status === 2 ? '#a6e3a1' : (this.step3Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -1757,7 +994,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step4Status === 2 ? '#a6e3a1' : (this.step4Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(4))
+                        Text(getStepLabel(this.selectedTaskIndex, 4))
                           .fontSize(13)
                           .fontColor(this.step4Status === 2 ? '#a6e3a1' : (this.step4Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -1768,7 +1005,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step5Status === 2 ? '#a6e3a1' : (this.step5Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(5))
+                        Text(getStepLabel(this.selectedTaskIndex, 5))
                           .fontSize(13)
                           .fontColor(this.step5Status === 2 ? '#a6e3a1' : (this.step5Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -1779,7 +1016,7 @@ ${this.selectedTaskPrompt}
                           .fontSize(14)
                           .fontColor(this.step6Status === 2 ? '#a6e3a1' : (this.step6Status === 1 ? '#89b4fa' : '#585b70'))
                           .margin({ right: 10 })
-                        Text(this.getStepLabel(6))
+                        Text(getStepLabel(this.selectedTaskIndex, 6))
                           .fontSize(13)
                           .fontColor(this.step6Status === 2 ? '#a6e3a1' : (this.step6Status === 1 ? '#89b4fa' : '#a6adc8'))
                       }.margin({ bottom: 12 }).width('100%')
@@ -2053,234 +1290,17 @@ ${this.selectedTaskPrompt}
               .height('100%')
 
             // === RIGHT PANEL: LIVE WORKSPACE ===
-            Column() {
-              // 1. Workspace Tab Bar
-              Row() {
-                // Tab 0 button: OpenClaw Chat
-                Row() {
-                  Text('OpenClaw 对话')
-                    .fontSize(13)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(this.workspaceTab === 0 ? '#89b4fa' : '#a6adc8')
-                }
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(this.workspaceTab === 0 ? '#313244' : 'transparent')
-                .borderRadius({ topLeft: 6, topRight: 6 })
-                .onClick(() => { this.workspaceTab = 0; })
-
-                // Tab 1 button: Source Code
-                Row() {
-                  Text('源码文件 (Source)')
-                    .fontSize(13)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(this.workspaceTab === 1 ? '#89b4fa' : '#a6adc8')
-                }
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(this.workspaceTab === 1 ? '#313244' : 'transparent')
-                .borderRadius({ topLeft: 6, topRight: 6 })
-                .onClick(() => { this.onSourceTabSelected(); })
-
-                // Tab 2 button: OpenClaw Logs
-                Row() {
-                  Text('OpenClaw 日志')
-                    .fontSize(13)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(this.workspaceTab === 2 ? '#89b4fa' : '#a6adc8')
-                }
-                .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-                .backgroundColor(this.workspaceTab === 2 ? '#313244' : 'transparent')
-                .borderRadius({ topLeft: 6, topRight: 6 })
-                .onClick(() => { this.workspaceTab = 2; })
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 6 })
-              .backgroundColor('#1e1e2e')
-
-              // 2. Tab Workspace Content Area
-              Column() {
-                if (this.workspaceTab === 0) {
-                  // === TAB 0: OPENCLAW CHAT WORKSPACE ===
-                  Column() {
-                    Row() {
-                      Text('OpenClaw')
-                        .fontSize(14)
-                        .fontWeight(FontWeight.Bold)
-                        .fontColor('#cdd6f4')
-                      Text('main')
-                        .fontSize(11)
-                        .fontColor('#a6adc8')
-                        .margin({ left: 8 })
-                      Text('聊天')
-                        .fontSize(11)
-                        .fontColor('#f38ba8')
-                        .fontWeight(FontWeight.Bold)
-                        .margin({ left: 8 })
-                      Blank()
-                      Text('qwen3.7-max')
-                        .fontSize(11)
-                        .fontColor('#a6adc8')
-                        .backgroundColor('#313244')
-                        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-                        .borderRadius(6)
-                      Text('HTTP')
-                        .fontSize(10)
-                        .fontColor('#1e1e2e')
-                        .fontWeight(FontWeight.Bold)
-                        .backgroundColor('#a6e3a1')
-                        .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                        .borderRadius(6)
-                        .margin({ left: 8 })
-                    }
-                    .width('100%')
-                    .padding({ left: 18, right: 18, top: 14, bottom: 12 })
-                    .backgroundColor('#181825')
-                    .borderWidth({ bottom: 1 })
-                    .borderColor('#313244')
-
-                    Scroll() {
-                      Column() {
-                        if (this.selectedTaskIndex === 0) {
-                          Column() {
-                            Text('选择左侧关卡后，这里会显示本应用内置的 OpenClaw 主对话区。')
-                              .fontSize(15)
-                              .fontColor('#cdd6f4')
-                              .fontWeight(FontWeight.Bold)
-                              .textAlign(TextAlign.Center)
-                              .margin({ bottom: 8 })
-                            Text('它只连接 OpenClaw 后端接口，不再嵌入 Web UI 页面。')
-                              .fontSize(12)
-                              .fontColor('#a6adc8')
-                              .textAlign(TextAlign.Center)
-                          }
-                          .width('100%')
-                          .layoutWeight(1)
-                          .justifyContent(FlexAlign.Center)
-                          .alignItems(HorizontalAlign.Center)
-                        } else {
-                          ForEach(this.chatMessages, (msg: ChatMessage) => {
-                            Column() {
-                              Row() {
-                                Text(msg.sender === 'user' ? 'You' : 'OpenClaw')
-                                  .fontSize(11)
-                                  .fontWeight(FontWeight.Bold)
-                                  .fontColor(msg.sender === 'user' ? '#f5c2e7' : '#a6e3a1')
-                                Text(msg.sender === 'user' ? '学生输入' : 'Assistant')
-                                  .fontSize(9)
-                                  .fontColor('#6c7086')
-                                  .margin({ left: 6 })
-                              }
-                              .width('100%')
-                              .justifyContent(msg.sender === 'user' ? FlexAlign.End : FlexAlign.Start)
-                              .margin({ bottom: 4 })
-
-                              Row() {
-                                Text(msg.text)
-                                  .fontSize(13)
-                                  .fontColor(msg.sender === 'user' ? '#1e1e2e' : '#cdd6f4')
-                                  .lineHeight(19)
-                              }
-                              .padding({ left: 14, right: 14, top: 11, bottom: 11 })
-                              .backgroundColor(msg.sender === 'user' ? '#f5c2e7' : '#313244')
-                              .borderRadius(10)
-                              .alignSelf(msg.sender === 'user' ? ItemAlign.End : ItemAlign.Start)
-                              .width(msg.sender === 'user' ? '72%' : '82%')
-                              .margin({ bottom: 16 })
-                            }
-                            .width('100%')
-                            .alignItems(msg.sender === 'user' ? HorizontalAlign.End : HorizontalAlign.Start)
-                          })
-                        }
-                      }
-                      .width('100%')
-                      .padding({ left: 22, right: 22, top: 20, bottom: 20 })
-                    }
-                    .layoutWeight(1)
-                    .backgroundColor('#11111b')
-
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .backgroundColor('#11111b')
-
-                } else if (this.workspaceTab === 1) {
-                  // === TAB 1: BOARD SOURCE FILE ===
-                  Column() {
-                    Row() {
-                      Text('/data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets')
-                        .fontSize(11)
-                        .fontColor('#585b70')
-                        .fontFamily('monospace')
-                        .layoutWeight(1)
-                      if (this.selectedTaskIndex > 0) {
-                        Text(this.sourceFileLoading ? '读取中...' : '刷新')
-                          .fontSize(11)
-                          .fontColor(this.sourceFileLoading ? '#585b70' : '#89b4fa')
-                          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                          .backgroundColor('#313244')
-                          .borderRadius(4)
-                          .onClick(() => {
-                            if (!this.sourceFileLoading) {
-                              this.fetchBoardSourceFile();
-                            }
-                          })
-                      }
-                    }
-                    .width('100%')
-                    .padding({ left: 16, right: 16, top: 10, bottom: 6 })
-
-                    Scroll() {
-                      Column() {
-                        Text(this.getSourceTabText())
-                          .fontSize(13)
-                          .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
-                          .fontFamily('monospace')
-                          .lineHeight(18)
-                          .padding(16)
-                      }
-                      .alignItems(HorizontalAlign.Start)
-                      .width('100%')
-                    }
-                    .layoutWeight(1)
-                    .width('100%')
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .backgroundColor('#11111b')
-
-                } else if (this.workspaceTab === 2) {
-                  // === TAB 2: OPENCLAW AGENT LOGS ===
-                  Scroll() {
-                    Column() {
-                      if (!this.currentExecutionLog) {
-                        Text('> Console idle. Ready to boot OpenClaw.')
-                          .fontSize(13)
-                          .fontColor('#585b70')
-                          .fontFamily('monospace')
-                          .padding(16)
-                      } else {
-                        Text(this.currentExecutionLog)
-                          .fontSize(12)
-                          .fontColor('#cdd6f4')
-                          .fontFamily('monospace')
-                          .lineHeight(16)
-                          .padding(16)
-                      }
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    .width('100%')
-                  }
-                  .width('100%')
-                  .height('100%')
-                  .backgroundColor('#11111b')
-                }
-              }
-              .width('100%')
-              .layoutWeight(1)
-              .backgroundColor('#252538')
-            }
-            .width('55%')
-            .height('100%')
-            .backgroundColor('#1e1e2e')
+            WorkspaceView({
+              workspaceTab: $workspaceTab,
+              selectedTaskIndex: this.selectedTaskIndex,
+              chatMessages: $chatMessages,
+              sourceFileLoading: this.sourceFileLoading,
+              sourceFileError: this.sourceFileError,
+              sourceText: getSourceTabText(this.selectedTaskIndex, this.sourceFileLoading, this.sourceFileError, this.sourceFileContent),
+              currentExecutionLog: this.currentExecutionLog,
+              onSelectSourceTab: () => { this.onSourceTabSelected(); },
+              onRefreshSource: () => { this.fetchBoardSourceFile(); }
+            })
           }
           .width('100%')
           .layoutWeight(1)
