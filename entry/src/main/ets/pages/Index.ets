@@ -1255,10 +1255,10 @@ ${this.selectedTaskPrompt}
             .borderRadius(12)
             .margin({ bottom: 20 })
             .onClick(() => {
-              promptAction.showToast({
-                message: '高级教程关卡正在开发中，敬请期待。',
-                duration: 2500
-              });
+              this.currentMode = 'advanced';
+              this.tutorialStep = 0;
+              this.selectedTaskIndex = 0;
+              this.workspaceTab = 0;
             })
 
           // Device status indicator bar
@@ -1281,7 +1281,7 @@ ${this.selectedTaskPrompt}
         .alignItems(HorizontalAlign.Center)
         .backgroundColor('#1e1e2e')
 
-      } else if (this.currentMode === 'tutorial') {
+      } else if (this.currentMode === 'tutorial' || this.currentMode === 'advanced') {
         // === INTERACTIVE TUTORIAL INTERFACE (SPLIT SCREEN) ===
         Column() {
           // 1. Header Toolbar
@@ -1294,7 +1294,7 @@ ${this.selectedTaskPrompt}
               .borderRadius(8)
               .onClick(() => { this.currentMode = ''; })
 
-            Text('鸿蒙 ArkUI 智能交互式学习课程')
+            Text(this.currentMode === 'advanced' ? '鸿蒙 ArkUI 高级开发课程' : '鸿蒙 ArkUI 智能交互式学习课程')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .fontColor('#cdd6f4')
@@ -1362,7 +1362,82 @@ ${this.selectedTaskPrompt}
             Column() {
               // 1. Top Section
               Column() {
-                if (this.tutorialStep === 0) {
+                if (this.currentMode === 'advanced') {
+                  Column() {
+                    Text('请选择高级开发模式')
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#cdd6f4')
+                      .margin({ bottom: 12, top: 6 })
+                      .alignSelf(ItemAlign.Start)
+
+                    Column() {
+                      Text('教学之路')
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor('#fab387')
+                        .margin({ bottom: 6 })
+
+                      Text('按照进阶课程路线学习 ArkUI 项目设计与开发。')
+                        .fontSize(12)
+                        .fontColor('#a6adc8')
+                        .margin({ bottom: 12 })
+
+                      Button('进入教学之路')
+                        .width('100%')
+                        .height(34)
+                        .fontSize(12)
+                        .backgroundColor('#45475a')
+                        .fontColor('#fab387')
+                        .onClick(() => {
+                          promptAction.showToast({
+                            message: '教学之路正在开发中。',
+                            duration: 1800
+                          });
+                        })
+                    }
+                    .width('100%')
+                    .padding(14)
+                    .backgroundColor('#313244')
+                    .borderRadius(8)
+                    .margin({ bottom: 10 })
+                    .alignItems(HorizontalAlign.Start)
+
+                    Column() {
+                      Text('自由开发')
+                        .fontSize(14)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor('#89b4fa')
+                        .margin({ bottom: 6 })
+
+                      Text('进入开放式开发空间，自主规划和实现 HAP 项目。')
+                        .fontSize(12)
+                        .fontColor('#a6adc8')
+                        .margin({ bottom: 12 })
+
+                      Button('进入自由开发')
+                        .width('100%')
+                        .height(34)
+                        .fontSize(12)
+                        .backgroundColor('#45475a')
+                        .fontColor('#89b4fa')
+                        .onClick(() => {
+                          promptAction.showToast({
+                            message: '自由开发正在开发中。',
+                            duration: 1800
+                          });
+                        })
+                    }
+                    .width('100%')
+                    .padding(14)
+                    .backgroundColor('#313244')
+                    .borderRadius(8)
+                    .alignItems(HorizontalAlign.Start)
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16 })
+
+                } else if (this.tutorialStep === 0) {
                   // Step 0: Choose Course List
                   Scroll() {
                     Column() {
