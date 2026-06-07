@@ -9,6 +9,7 @@ const DEFAULT_BUNDLE = 'com.openclaw.studenthap';
 const DEFAULT_ABILITY = 'EntryAbility';
 const DEFAULT_MODULE = 'entry';
 const COURSE_RESTORE_SCRIPT = '/data/local/tmp/oh61-hapbuild/restore_course_project.sh';
+const ADVANCED_RESTORE_SCRIPT = '/data/local/tmp/advanced-hapbuild/restore_advanced_project.sh';
 const HDC_SHELL_GROUPS = [0, 1006, 1007, 2000, 3009];
 const ALLOWED_READ_PREFIXES = [
   '/data/local/tmp/oh61-hapbuild/project/',
@@ -165,6 +166,10 @@ const server = createServer(async (req, res) => {
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/start-linux-env') { sendResult(res, await startLinuxEnv()); return; }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-course') {
     sendResult(res, await runFixedScript(COURSE_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-advanced') {
+    sendResult(res, await runFixedScript(ADVANCED_RESTORE_SCRIPT, 30000));
     return;
   }
   if (req.method === 'GET' && req.url.startsWith('/read-file')) {

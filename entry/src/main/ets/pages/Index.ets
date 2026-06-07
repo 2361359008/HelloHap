@@ -41,6 +41,8 @@ struct Index {
   private courseResetNoticeSequence: number = 0;
   private readonly boardIndexEtsUrl: string =
     'http://127.0.0.1:7681/read-file?path=%2Fdata%2Flocal%2Ftmp%2Foh61-hapbuild%2Fproject%2Fentry%2Fsrc%2Fmain%2Fets%2Fpages%2FIndex.ets';
+  // 高级版（自由发挥/教学共用的 schedulehap-lite 工程）还原接口：刷回初始备份。
+  private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
 
   // Step Statuses (0: pending, 1: active, 2: success)
   @State step1Status: number = 0;
@@ -421,8 +423,9 @@ struct Index {
     }
     this.courseResetting = true;
     try {
+      let resetUrl = this.currentMode === 'advanced' ? this.advancedResetUrl : 'http://127.0.0.1:7681/reset-course';
       await this.client.requestText(
-        'http://127.0.0.1:7681/reset-course',
+        resetUrl,
         http.RequestMethod.GET
       );
       this.clearCourseState();
@@ -436,6 +439,62 @@ struct Index {
     } finally {
       this.courseResetting = false;
     }
+  }
+
+  // 把板端高级版工程（/data/local/tmp/advanced-hapbuild/project）刷回初始备份，
+  // 确保每次进入教学/自由发挥都是最原始的模板（OpenClaw 交互会改动该工程）。
+  async restoreAdvancedProject(): Promise<boolean> {
+    try {
+      let out = await this.client.requestText(this.advancedResetUrl, http.RequestMethod.GET);
+      this.currentExecutionLog += '[reset-advanced] ' + out + '\n';
+      let ok = out.indexOf('ok:') >= 0;
+      this.chatMessages.push(new ChatMessage('assistant', ok
+        ? '日程工程已还原到初始模板，可以开始本关。'
+        : '日程工程还原未成功（将继续，但工程可能不是初始状态）：' + out));
+      this.chatMessages = [...this.chatMessages];
+      return ok;
+    } catch (e) {
+      let message = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+      this.currentExecutionLog += '[reset-advanced] failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', '日程工程还原请求失败（将继续）：' + message));
+      this.chatMessages = [...this.chatMessages];
+      return false;
+    }
+  }
+
+  // 进入「教学之路」：先刷回初始工程，再按需初始化讲师身份。
+  async enterTeaching(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.advancedScreen = 'teaching';
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
+    this.chatMessages = [...this.chatMessages];
+    await this.restoreAdvancedProject();
+    if (!this.teachingReady) {
+      await this.initTeachingIdentity();
+    }
+  }
+
+  // 进入「自由发挥」：先刷回初始工程，再初始化还原身份。
+  async enterFreeDev(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
+    this.chatMessages = [...this.chatMessages];
+    await this.restoreAdvancedProject();
+    await this.initFreeDevIdentity();
   }
 
   // Pre-fill states on selecting a task
@@ -744,7 +803,7 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0) {
+            if (this.tutorialStep > 0 || this.currentMode === 'advanced') {
               Button(this.courseResetting ? '正在还原项目...' : '重置课程')
                 .height(36)
                 .fontSize(14)
@@ -815,13 +874,10 @@ struct Index {
                     })
                   } else {
                     AdvancedMenuView({
-                      onEnterTeaching: () => {
-                        this.advancedScreen = 'teaching';
-                        if (!this.teachingReady) { this.initTeachingIdentity(); }
-                      },
+                      onEnterTeaching: () => { this.enterTeaching(); },
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
-                      onEnterFreeDev: () => { this.initFreeDevIdentity(); },
+                      onEnterFreeDev: () => { this.enterFreeDev(); },
                       onSendRestoreType: () => {
                         this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
                       },
