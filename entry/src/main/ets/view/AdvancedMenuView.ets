@@ -2,10 +2,10 @@
 // 从 pages/Index.ets 抽取：高级版左侧的"教学之路 / 自由开发"两个入口卡片。
 // 「自由开发」点击后初始化 openclaw 身份会话，并展示两个还原提示词按钮。
 
-import { promptAction } from '@kit.ArkUI';
-
 @Component
 export struct AdvancedMenuView {
+  // 点击「进入教学之路」：进入教学关卡
+  onEnterTeaching: () => void = () => {};
   // 点击「进入自由开发」：初始化 openclaw 身份会话
   onEnterFreeDev: () => void = () => {};
   // 发送提示词①：还原「类型」下拉菜单
@@ -44,12 +44,7 @@ export struct AdvancedMenuView {
           .fontSize(12)
           .backgroundColor('#45475a')
           .fontColor('#fab387')
-          .onClick(() => {
-            promptAction.showToast({
-              message: '教学之路正在开发中。',
-              duration: 1800
-            });
-          })
+          .onClick(() => { this.onEnterTeaching(); })
       }
       .width('100%')
       .padding(14)
