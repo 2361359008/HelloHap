@@ -1516,6 +1516,7 @@ struct Index {
             WorkspaceView({
               workspaceTab: $workspaceTab,
               selectedTaskIndex: this.selectedTaskIndex,
+              currentMode: this.currentMode,
               chatMessages: $chatMessages,
               sourceFileLoading: this.sourceFileLoading,
               sourceFileError: this.sourceFileError,
