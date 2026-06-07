@@ -9,6 +9,10 @@ export struct TeachingPathView {
   onBack: () => void = () => {};
   // 让 OpenClaw 详解文件准备
   onExplainWithOpenClaw: () => void = () => {};
+  // 重新初始化讲师身份
+  onReinitIdentity: () => void = () => {};
+  // 讲师身份是否已初始化（决定详解按钮是否可点）
+  @Prop teachingReady: boolean = false;
   // openclaw 是否正在处理（处理中禁用按钮）
   @Prop teachingBusy: boolean = false;
 
@@ -88,16 +92,43 @@ export struct TeachingPathView {
         this.InfoCard('⑥ 哪些文件不要随意改',
           'build-profile.json5、hvigor*、oh-package.json5、package.json、signing/ 内容、EntryAbility.ets——改这些容易破坏编译/签名。除非明确需要，否则别碰。')
 
-        Button(this.teachingBusy ? 'OpenClaw 正在讲解...' : '让 OpenClaw 详解文件准备')
+        if (this.teachingReady) {
+          Text('讲师身份已就位，可点击下方让 OpenClaw 讲解文件准备。')
+            .fontSize(11)
+            .fontColor('#a6e3a1')
+            .margin({ top: 2, bottom: 8 })
+            .alignSelf(ItemAlign.Start)
+        } else {
+          Text(this.teachingBusy ? '正在初始化讲师身份...' : '讲师身份未就位，请重新初始化后再讲解。')
+            .fontSize(11)
+            .fontColor('#f9e2af')
+            .margin({ top: 2, bottom: 8 })
+            .alignSelf(ItemAlign.Start)
+        }
+
+        Button(this.teachingBusy ? 'OpenClaw 正在处理...' : '让 OpenClaw 详解文件准备')
           .width('100%')
           .height(36)
           .fontSize(12)
           .backgroundColor('#11305a')
           .fontColor('#89b4fa')
-          .enabled(!this.teachingBusy)
-          .opacity(this.teachingBusy ? 0.5 : 1)
+          .enabled(this.teachingReady && !this.teachingBusy)
+          .opacity((this.teachingReady && !this.teachingBusy) ? 1 : 0.5)
           .margin({ top: 2, bottom: 8 })
           .onClick(() => { this.onExplainWithOpenClaw(); })
+
+        if (!this.teachingReady) {
+          Button('重新初始化讲师身份')
+            .width('100%')
+            .height(34)
+            .fontSize(12)
+            .backgroundColor('#45475a')
+            .fontColor('#cdd6f4')
+            .enabled(!this.teachingBusy)
+            .opacity(this.teachingBusy ? 0.5 : 1)
+            .margin({ bottom: 8 })
+            .onClick(() => { this.onReinitIdentity(); })
+        }
       }
       .width('100%')
       .padding({ left: 16, right: 16 })

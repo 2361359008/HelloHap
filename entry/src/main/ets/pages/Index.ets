@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt } from '../model/FreeDevContent';
-import { buildScheduleFilePrepPrompt } from '../model/TeachingContent';
+import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -74,6 +74,7 @@ struct Index {
   @State studentQuestionEnabled: boolean = false;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching'
+  @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -323,7 +324,42 @@ struct Index {
     }
   }
 
+  async initTeachingIdentity(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.studentQuestionEnabled = true;
+    this.workspaceTab = 0;
+    this.chatInput = '';
+    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日程 HAP 课程讲师身份'));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
+        this.chatMessages = [...this.chatMessages];
+      });
+      this.teachingReady = true;
+      this.openClawBusy = false;
+    } catch (error) {
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] teaching identity init failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 讲师身份初始化失败：' + message));
+      this.openClawBusy = false;
+    }
+  }
+
   async explainScheduleFilePrep(): Promise<void> {
+    if (!this.teachingReady) {
+      promptAction.showToast({
+        message: '请先初始化讲师身份。',
+        duration: 1800
+      });
+      return;
+    }
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
@@ -373,6 +409,7 @@ struct Index {
     this.studentQuestionEnabled = false;
     this.freeDevReady = false;
     this.advancedScreen = 'menu';
+    this.teachingReady = false;
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -682,6 +719,7 @@ struct Index {
             this.workspaceTab = 0;
             this.freeDevReady = false;
             this.advancedScreen = 'menu';
+            this.teachingReady = false;
           }
         })
 
@@ -769,13 +807,18 @@ struct Index {
                 if (this.currentMode === 'advanced') {
                   if (this.advancedScreen === 'teaching') {
                     TeachingPathView({
+                      teachingReady: this.teachingReady,
                       teachingBusy: this.openClawBusy,
                       onBack: () => { this.advancedScreen = 'menu'; },
+                      onReinitIdentity: () => { this.initTeachingIdentity(); },
                       onExplainWithOpenClaw: () => { this.explainScheduleFilePrep(); }
                     })
                   } else {
                     AdvancedMenuView({
-                      onEnterTeaching: () => { this.advancedScreen = 'teaching'; },
+                      onEnterTeaching: () => {
+                        this.advancedScreen = 'teaching';
+                        if (!this.teachingReady) { this.initTeachingIdentity(); }
+                      },
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
                       onEnterFreeDev: () => { this.initFreeDevIdentity(); },
