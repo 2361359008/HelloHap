@@ -17,6 +17,23 @@ export const FREEDEV_AGENT_ID: string = 'restore';
 export const ADVANCED_PROJECT_ROOT: string = '/data/local/tmp/advanced-hapbuild/project';
 export const ADVANCED_INDEX_ETS: string = '/data/local/tmp/advanced-hapbuild/project/entry/src/main/ets/pages/Index.ets';
 
+// 改完文件后让 OpenClaw 自己执行的「编译/签名/安装/启动」包装脚本（先确保 linux-env 容器再就地编译），
+// 用来在板上直接看到还原效果。仿简单关练习关「全流程」按钮的做法，由还原 agent 在同一轮里跑完。
+export const ADVANCED_BUILD_SCRIPT: string = '/data/local/tmp/advanced-hapbuild/build_advanced_with_env.sh';
+
+// 还原提示词统一追加的「改完即编译装包并汇报」步骤。
+function buildAndReportStep(): string {
+  return `
+
+改完文件后，立刻执行下面这一条命令，把改动编译/签名/安装到板上并启动 schedulehap-lite（用于在板上查看还原效果）：
+sh ${ADVANCED_BUILD_SCRIPT}
+要求：
+1. 只执行这一条命令，不要执行任何额外命令。
+2. 等待命令执行完毕（编译较慢，请耐心等待）。
+3. 命令成功则回复：还原已完成并已编译安装到板上，并附上你改动的代码片段与所在行。
+4. 命令失败则回复：编译失败，并原样附上脚本的关键输出（尤其是报错那几行）。`;
+}
+
 // 进入「自由开发」时发送的简短问候：会话已绑定还原 agent，这里只让它用一句话确认身份。
 // 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由还原 agent 工作区文件决定。
 export function buildScheduleIdentityPrompt(): string {
@@ -46,7 +63,7 @@ export function buildRestoreTypeMenuPrompt(): string {
   { value: '学习', action: () => { this.category = '学习' } }
 ])
 \`\`\`
-完成后回贴改动后的这段代码，并说明改了哪几行。`;
+完成后回贴改动后的这段代码，并说明改了哪几行。` + buildAndReportStep();
 }
 
 // 提示词②：还原「提醒」下拉与「响铃提醒」开关。
@@ -89,5 +106,5 @@ Row() {
 .height(66)
 .padding({ left: 20, right: 18 })
 \`\`\`
-完成后回贴改动后的这两段代码，并说明加在了哪一行之后。`;
+完成后回贴改动后的这两段代码，并说明加在了哪一行之后。` + buildAndReportStep();
 }
