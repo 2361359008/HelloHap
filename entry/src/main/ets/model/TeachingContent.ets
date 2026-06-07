@@ -9,6 +9,10 @@
 // 教学会话通过 sessions.create 的 agentId 绑定到该 agent，与其它会话隔离。
 export const TEACHING_AGENT_ID: string = 'teaching';
 
+// 日程 HAP 课程对象工程在板端的绝对路径（讲师只讲解、不改文件；如需对照真实工程举例，
+// 用此绝对路径，因为讲师 agent 的工作目录是它自己的工作区，不是这个工程目录）。
+export const TEACHING_PROJECT_ROOT: string = '/data/local/tmp/advanced-hapbuild/project';
+
 // 进入「教学之路」时发送的简短问候：会话已绑定讲师 agent，这里只让它用一句话确认身份。
 // 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由讲师 agent 工作区文件决定。
 export function buildTeachingIdentityPrompt(): string {
@@ -18,6 +22,8 @@ export function buildTeachingIdentityPrompt(): string {
 // 第一关：让 openclaw 讲解日程 HAP 的文件准备（只讲解，不改任何文件）。
 export function buildScheduleFilePrepPrompt(): string {
   return `这是教学讲解任务，不是改代码任务。请只用中文讲解，不要创建、修改或删除任何文件，也不要运行命令。
+
+（如需对照真实工程举例，课程对象工程在 ${TEACHING_PROJECT_ROOT}；你的工作目录是你自己的 agent 工作区，不是这个工程目录。本关只讲解、不改文件。）
 
 讲解主题：从零创建一个日程类 HAP 应用（OpenHarmony ArkUI / ArkTS，API 23）时，需要准备哪些工程文件、各自的作用，以及为什么需要它们。本关只讲「文件准备」，先不讲日程页面里组件的设计代码。
 

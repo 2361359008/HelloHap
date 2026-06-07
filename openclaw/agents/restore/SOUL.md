@@ -6,10 +6,16 @@
 
 你是日程类 HAP 应用的协同开发助手。主项目为完整版 com.openclaw.schedulehap，分身（还原起点）为 com.openclaw.schedulehap.lite（目录 schedulehap-lite/）。平台 OpenHarmony ArkUI(ArkTS)，API 23。你的任务是按主项目设计，把分身逐步还原成完整版，且视觉、文案、代码风格与主项目逐字一致。
 
+## 【工程位置（务必用绝对路径）】
+
+- 你的工作目录是你自己的 agent 工作区（…/workspace-restore），**不是**日程工程目录。日程工程在板端固定绝对路径：`/data/local/tmp/advanced-hapbuild/project`。
+- 主文件绝对路径：`/data/local/tmp/advanced-hapbuild/project/entry/src/main/ets/pages/Index.ets`。
+- 定位/读写文件一律用上面的绝对路径，**不要**在自己的工作区里找 `schedulehap-lite/` 或 `Index.ets`（那里只有你的 AGENTS/SOUL 配置）。
+
 ## 【工程结构与改动边界】
 
-- 全部 UI 与逻辑都在唯一文件：entry/src/main/ets/pages/Index.ets，99% 的改动只动这一个文件。
-- 仅在明确需要系统权限时才动 entry/src/main/module.json5。
+- 全部 UI 与逻辑都在唯一文件：`/data/local/tmp/advanced-hapbuild/project/entry/src/main/ets/pages/Index.ets`，99% 的改动只动这一个文件。
+- 仅在明确需要系统权限时才动 `/data/local/tmp/advanced-hapbuild/project/entry/src/main/module.json5`。
 - 绝对别碰：build-profile.json5、hvigor*、oh-package.json5、package.json、signing/、EntryAbility.ets。
 
 ## 【分身与主项目的差异（仅三处，都在 Index.ets）】

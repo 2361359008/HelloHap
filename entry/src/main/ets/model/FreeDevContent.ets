@@ -11,6 +11,12 @@
 // 自由开发会话通过 sessions.create 的 agentId 绑定到该 agent，与其它会话隔离。
 export const FREEDEV_AGENT_ID: string = 'restore';
 
+// 日程 HAP（schedulehap-lite）在板端的工程绝对路径。restore agent 的工作目录是它
+// 自己的工作区（…/workspace-restore），并不是这个工程目录，所以提示词里必须用绝对路径
+// 定位文件，否则 agent 会在自己工作区里找不到 Index.ets。
+export const ADVANCED_PROJECT_ROOT: string = '/data/local/tmp/advanced-hapbuild/project';
+export const ADVANCED_INDEX_ETS: string = '/data/local/tmp/advanced-hapbuild/project/entry/src/main/ets/pages/Index.ets';
+
 // 进入「自由开发」时发送的简短问候：会话已绑定还原 agent，这里只让它用一句话确认身份。
 // 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由还原 agent 工作区文件决定。
 export function buildScheduleIdentityPrompt(): string {
@@ -21,7 +27,9 @@ export function buildScheduleIdentityPrompt(): string {
 export function buildRestoreTypeMenuPrompt(): string {
   return `按你身份里记录的主项目设计，把「类型」行从静态展示还原成下拉菜单。
 
-只动 entry/src/main/ets/pages/Index.ets，最小改动：
+工程根目录：${ADVANCED_PROJECT_ROOT}（注意：你的工作目录是你自己的 agent 工作区，不是这个工程目录，务必用下面的绝对路径定位文件，不要在自己工作区里找 schedulehap-lite/Index.ets）。
+
+只动 ${ADVANCED_INDEX_ETS}，最小改动：
 1. 定位：新建/编辑界面里的「类型」行 Row（结构为 Text('类型') + Blank() + Text(this.category) + Text('›')），行属性为 .width('100%').height(62).padding({ left: 20, right: 18 })。
 2. 在该行 .padding(...) 之后追加 .bindMenu，三个选项写回 this.category：普通 / 工作 / 学习（对应分类色 #F08C46 / #1677FF / #58B879，颜色用于值文本/标记的既有逻辑，不要新增样式）。
 3. 复用现有 this.category（@State 已存在），不新增状态、不改默认值，不碰别的行/文件。
@@ -45,7 +53,9 @@ export function buildRestoreTypeMenuPrompt(): string {
 export function buildRestoreReminderPrompt(): string {
   return `按你身份里记录的主项目设计，把分身中被整段删除的「提醒」下拉行与「响铃提醒」开关行整段加回。
 
-只动 entry/src/main/ets/pages/Index.ets，最小改动：
+工程根目录：${ADVANCED_PROJECT_ROOT}（注意：你的工作目录是你自己的 agent 工作区，不是这个工程目录，务必用下面的绝对路径定位文件，不要在自己工作区里找 schedulehap-lite/Index.ets）。
+
+只动 ${ADVANCED_INDEX_ETS}，最小改动：
 1. 定位：在「更多设置」卡片中、原本紧邻「重复」行之后的位置，加回两行（顺序：先「提醒」下拉行，再「响铃提醒」开关行）。
 2. 「提醒」行：结构 Text('提醒') + Blank() + Text(this.reminderMode) + Text('›')，.width('100%').height(62).padding({ left: 20, right: 18 })，并在 .padding(...) 后追加 .bindMenu，选项写回 this.reminderMode：不提醒 / 准时 / 15 分钟前 / 1 小时前（半角空格必须一致）。
 3. 「响铃提醒」行：结构 Text('响铃提醒') + Blank() + this.ToggleSwitch(this.ringReminder, () => { this.ringReminder = !this.ringReminder })，行高 66、padding({ left: 20, right: 18 })。
