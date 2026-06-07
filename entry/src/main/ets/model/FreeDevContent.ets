@@ -6,57 +6,15 @@
 // 这些函数不依赖组件状态，仅返回固定文案，便于在 pages/Index.ets 中通过
 // OpenClawClient.startTurn 发送给 openclaw。
 
-// 板端 OpenClaw 工作区里自由开发「还原（知时）」身份文件的运行时路径
-//（仓库源文件：openclaw/identities/freedev-schedule-restore.md）。
-export const FREEDEV_IDENTITY_FILE: string = '/data/local/tmp/.openclaw/workspace/identities/freedev-schedule-restore.md';
+// 「日程 HAP 还原（知时）」专属 agent 的 id（其人格、设计约束与逐字设计令牌来自该 agent
+// 工作区的 IDENTITY/SOUL/AGENTS 文件，在 agent 启动时由 OpenClaw 注入，无需每轮对话再切换身份）。
+// 自由开发会话通过 sessions.create 的 agentId 绑定到该 agent，与其它会话隔离。
+export const FREEDEV_AGENT_ID: string = 'restore';
 
-// 进入「自由开发」时发送：让 openclaw 用原生 set-identity 切换到独立的「日程 HAP 还原（知时）」身份文件。
-// A) 主用 openclaw agents set-identity --identity-file <还原身份文件>（切到独立身份文件，不改默认 IDENTITY.md）。
-// B) 命令不可用/文件不存在时，用下面内联全文兜底采纳。
+// 进入「自由开发」时发送的简短问候：会话已绑定还原 agent，这里只让它用一句话确认身份。
+// 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由还原 agent 工作区文件决定。
 export function buildScheduleIdentityPrompt(): string {
-  return `请切换到「日程 HAP 还原（知时）」身份。
-
-加载方式（优先，使用 OpenClaw 原生身份机制）：
-执行命令切换到这份独立的还原身份文件：
-  openclaw agents set-identity --identity-file ${FREEDEV_IDENTITY_FILE}
-说明：该文件是独立身份文件，不是工作区根目录的默认 IDENTITY.md；执行后你切换到还原身份，默认身份本身不被修改。命令成功即采用该文件中的身份设定。
-
-兜底（仅当上面命令不可用或文件不存在时）：
-直接采用下面这份身份与设计约束（与该身份文件内容一致）：
------
-【你的身份】
-你是日程类 HAP 应用的协同开发助手。主项目为完整版 com.openclaw.schedulehap，分身（还原起点）为 com.openclaw.schedulehap.lite（目录 schedulehap-lite/）。平台 OpenHarmony ArkUI(ArkTS)，API 23。你的任务是按主项目设计，把分身逐步还原成完整版，且视觉、文案、代码风格与主项目逐字一致。
-
-【工程结构与改动边界】
-- 全部 UI 与逻辑都在唯一文件：entry/src/main/ets/pages/Index.ets，99% 的改动只动这一个文件。
-- 仅在明确需要系统权限时才动 entry/src/main/module.json5。
-- 绝对别碰：build-profile.json5、hvigor*、oh-package.json5、package.json、signing/、EntryAbility.ets。
-
-【分身与主项目的差异（仅三处，都在 Index.ets）】
-1. 「类型」行：分身是静态展示（无 .bindMenu）→ 还原 = 补回下拉菜单。
-2. 「重复」行：分身是静态展示（无 .bindMenu）→ 还原 = 补回下拉菜单。
-3. 「提醒」下拉 +「响铃提醒」开关：分身整段删除 → 还原 = 整段加回。
-
-【设计令牌（必须逐字复用）】
-- 主蓝 #1677FF；分类色 普通/工作/学习 = #F08C46 / #1677FF / #58B879。
-- 卡片背景 #FFFFFF；页面背景 #F1F2F4；分割线 #ECEDEF。
-- 主文字 #161616(或 #171717)；次要文字 #777B82；箭头「›」#B5B8BD。
-- 卡片圆角 16；设置行高 选择行 62 / 开关行 66；行内边距 { left: 20, right: 18 }。
-- 字号 标签 17(Medium) / 值 15 / 箭头 25；时区固定显示 GMT+08:00 北京。
-
-【ArkUI 写法（点名复用，不要自创）】
-- 下拉菜单：在 Row(){ Text(标签) Blank() Text(当前值) Text('›') } 上链式 .bindMenu([{ value, action }, ...])，action 内写回对应 @State 字段。
-- 开关：this.ToggleSwitch(this.字段, () => { this.字段 = !this.字段 })。
-- 通用设置行：this.SettingRow('标签', '值', () => {})。
-- 复用现有 @State（如 category / repeatMode / reminderMode / ringReminder），不新增状态、不改默认值。
-
-【通用约束】
-- 一次只做一个可独立验证的小改动；最小改动，不重排属性、不改无关行、不"优化"既有代码。
-- 中文文案中的半角空格必须保持一致（如「15 分钟前」「1 小时前」，不要写成「15分钟前」）。
-- 每次改完做括号 {} () [] 配平自检，确保 assembleHap 能编译，并回贴改动后的代码片段。
------
-
-无论走哪一步，确认身份就位后，请只回复「日程 HAP 还原身份已就位，等待提示词」，不要执行任何文件改动。`;
+  return `你好，请用一句话确认你当前的身份和任务（把日程 HAP 分身按主项目设计还原），然后回复「日程 HAP 还原身份已就位，等待提示词」。在收到具体提示词前不要改动任何文件。`;
 }
 
 // 提示词①：还原「类型」行的下拉菜单。

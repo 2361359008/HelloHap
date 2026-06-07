@@ -3,8 +3,8 @@ import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
-import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt } from '../model/FreeDevContent';
-import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt } from '../model/TeachingContent';
+import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID } from '../model/FreeDevContent';
+import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -284,7 +284,7 @@ struct Index {
       await this.client.startTurn(buildScheduleIdentityPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, FREEDEV_AGENT_ID);
       this.freeDevReady = true;
       this.openClawBusy = false;
     } catch (error) {
@@ -317,7 +317,7 @@ struct Index {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, FREEDEV_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
       let message = (error as Error).message;
@@ -344,7 +344,7 @@ struct Index {
       await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, TEACHING_AGENT_ID);
       this.teachingReady = true;
       this.openClawBusy = false;
     } catch (error) {
@@ -378,7 +378,7 @@ struct Index {
       await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, TEACHING_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
       let message = (error as Error).message;

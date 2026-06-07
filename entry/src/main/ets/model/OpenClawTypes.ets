@@ -94,3 +94,15 @@ export class OpenClawRpcRequest {
 
 export class OpenClawEmptyParams {
 }
+
+// sessions.create 参数：可选 agentId，把会话绑定到指定 agent（多 agent 身份隔离）。
+// 留空则由网关使用默认 agent（main）。
+export class OpenClawCreateSessionParams {
+  agentId?: string;
+
+  constructor(agentId: string) {
+    if (agentId) {
+      this.agentId = agentId;
+    }
+  }
+}

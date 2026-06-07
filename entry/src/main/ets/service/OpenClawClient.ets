@@ -5,7 +5,7 @@
 
 import { http, webSocket } from '@kit.NetworkKit';
 import { PendingRequest, OpenClawConnectParams, OpenClawRpcRequest,
-  OpenClawEmptyParams, OpenClawHistoryParams, OpenClawSendParams } from '../model/OpenClawTypes';
+  OpenClawEmptyParams, OpenClawCreateSessionParams, OpenClawHistoryParams, OpenClawSendParams } from '../model/OpenClawTypes';
 
 export class OpenClawClient {
   private ws: webSocket.WebSocket | null = null;
@@ -13,6 +13,8 @@ export class OpenClawClient {
   private token: string = '';
   sessionId: string = '';
   sessionKey: string = '';
+  // 当前会话绑定的 agent（''=默认 main）。切换 agent 时重建会话，实现身份隔离。
+  private currentAgentId: string = '';
   private agentTurnResolve: ((value: string) => void) | null = null;
   private agentTurnReject: ((err: Error) => void) | null = null;
 
@@ -262,9 +264,15 @@ export class OpenClawClient {
   }
 
   // 确保已有会话：必要时创建 session，并刷新 sessionId。
-  private async ensureSession(): Promise<void> {
+  // agentId 用于把会话绑定到指定 agent（''=默认 main）；切换 agent 时重建会话。
+  private async ensureSession(agentId: string): Promise<void> {
+    if (agentId !== this.currentAgentId) {
+      this.currentAgentId = agentId;
+      this.sessionKey = '';
+      this.sessionId = '';
+    }
     if (!this.sessionKey) {
-      let createRes = await this.sendRpcRequest('sessions.create', new OpenClawEmptyParams());
+      let createRes = await this.sendRpcRequest('sessions.create', new OpenClawCreateSessionParams(agentId));
       let createPayload = JSON.parse(createRes) as Record<string, Object>;
       let sKey = '';
       if (createPayload['key']) {
@@ -296,7 +304,7 @@ export class OpenClawClient {
 
   // 发起一轮对话/任务：连接 -> 建会话 -> 触发占位回调 -> 发送消息。
   // 返回的 Promise 在收到 chat 'final' 事件后由 completeTurn 解析。
-  startTurn(message: string, onPlaceholder: () => void): Promise<string> {
+  startTurn(message: string, onPlaceholder: () => void, agentId: string = ''): Promise<string> {
     return new Promise(async (resolve, reject) => {
       this.agentTurnResolve = resolve;
       this.agentTurnReject = reject;
@@ -304,7 +312,7 @@ export class OpenClawClient {
       try {
         let token = await this.getToken();
         await this.setupWebSocket(token);
-        await this.ensureSession();
+        await this.ensureSession(agentId);
 
         onPlaceholder();
 
@@ -352,6 +360,7 @@ export class OpenClawClient {
     this.pendingRequests = [];
     this.sessionId = '';
     this.sessionKey = '';
+    this.currentAgentId = '';
     this.agentTurnResolve = null;
     this.agentTurnReject = null;
   }

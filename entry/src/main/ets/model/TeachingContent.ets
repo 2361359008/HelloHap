@@ -4,38 +4,15 @@
 // 不涉及日程页面里组件的设计代码。函数为纯文案，便于在 pages/Index.ets 中通过
 // OpenClawClient.startTurn 发送给 openclaw。
 
-// 板端 OpenClaw 工作区里教学讲师身份文件的运行时路径（仓库源文件：openclaw/identities/teaching-schedule-hap.md）。
-export const TEACHING_IDENTITY_FILE: string = '/data/local/tmp/.openclaw/workspace/identities/teaching-schedule-hap.md';
+// 「日程 HAP 课程讲师」专属 agent 的 id（其人格来自该 agent 工作区的 IDENTITY/SOUL/AGENTS 文件，
+// 在 agent 启动时由 OpenClaw 注入，无需每轮对话再切换身份）。
+// 教学会话通过 sessions.create 的 agentId 绑定到该 agent，与其它会话隔离。
+export const TEACHING_AGENT_ID: string = 'teaching';
 
-// 进入「教学之路」时发送：让 openclaw 用原生 set-identity 切换到独立的「日程 HAP 课程讲师」身份文件。
-// A) 主用 openclaw agents set-identity --identity-file <讲师身份文件>（切到独立身份文件，不改默认 IDENTITY.md）。
-// B) 命令不可用/文件不存在时，用下面内联全文兜底采纳。
+// 进入「教学之路」时发送的简短问候：会话已绑定讲师 agent，这里只让它用一句话确认身份。
+// 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由讲师 agent 工作区文件决定。
 export function buildTeachingIdentityPrompt(): string {
-  return `请切换到「日程 HAP 课程讲师」身份。
-
-加载方式（优先，使用 OpenClaw 原生身份机制）：
-执行命令切换到这份独立的讲师身份文件：
-  openclaw agents set-identity --identity-file ${TEACHING_IDENTITY_FILE}
-说明：该文件是独立身份文件，不是工作区根目录的默认 IDENTITY.md；执行后你切换到讲师身份，默认身份本身不被修改。命令成功即采用该文件中的身份设定。
-
-兜底（仅当上面命令不可用或文件不存在时）：
-直接采用下面这份身份设定（与该身份文件内容一致）：
------
-【你是谁（角色）】
-你是一名 OpenHarmony ArkUI(ArkTS) 日程类 HAP 应用的课程讲师，面向零基础到初级的学员。平台 OpenHarmony ArkUI / ArkTS，API 23；课程对象工程是日程类 HAP（主项目 com.openclaw.schedulehap，分身 com.openclaw.schedulehap.lite）。语气耐心、循序渐进、口语化中文。
-
-【职责】
-讲解工程结构/文件作用/开发流程；按"是什么 / 在哪 / 作用 / 注意"四要素答疑；每讲完一点给一句下一步指引。只有学员明确要求改代码时才动手，否则只讲解不改文件。
-
-【课程范围与节奏】
-一次只讲清一个主题、配一个简单例子。第一关只讲「工程的文件准备」：创建一个日程 HAP 需要准备哪些文件、各自作用、为什么需要它们，先不讲页面组件的设计代码。
-
-【工程结构常识】
-标准目录：AppScope（app.json5 应用身份 / string.json 的 app_name）、entry（唯一 HAP 模块：module.json5、entryability/EntryAbility.ets、pages/Index.ets、resources/.../main_pages.json、string.json）、signing（签名材料）、构建脚手架（build-profile.json5 / hvigor*，一般不动）。
-不要随意改的文件：build-profile.json5、hvigor*、oh-package.json5、package.json、signing/ 内容、EntryAbility.ets。
------
-
-无论走哪一步，确认身份就位后，请只回复「日程 HAP 课程讲师身份已就位，可以开始第一关讲解」，不要执行任何工程文件改动，等待学员下一步指令。`;
+  return `你好，请用一句话确认你当前的身份和职责，然后回复「日程 HAP 课程讲师身份已就位，可以开始第一关讲解」。在学员未明确要求前，只讲解、不改动任何工程文件。`;
 }
 
 // 第一关：让 openclaw 讲解日程 HAP 的文件准备（只讲解，不改任何文件）。
