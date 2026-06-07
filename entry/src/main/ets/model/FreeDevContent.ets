@@ -6,10 +6,24 @@
 // 这些函数不依赖组件状态，仅返回固定文案，便于在 pages/Index.ets 中通过
 // OpenClawClient.startTurn 发送给 openclaw。
 
-// 进入「自由开发」时发送：让 openclaw 进入日程 HAP 还原任务的身份与设计约束。
-export function buildScheduleIdentityPrompt(): string {
-  return `你现在进入「自由开发 · 日程 HAP 还原」协同身份。请按以下身份与设计约束工作，本轮只需确认已就位，不要修改任何文件。
+// 板端 OpenClaw 工作区里自由开发「还原（知时）」身份文件的运行时路径
+//（仓库源文件：openclaw/identities/freedev-schedule-restore.md）。
+export const FREEDEV_IDENTITY_FILE: string = '/data/local/tmp/.openclaw/workspace/identities/freedev-schedule-restore.md';
 
+// 进入「自由开发」时发送：让 openclaw 用原生 set-identity 切换到独立的「日程 HAP 还原（知时）」身份文件。
+// A) 主用 openclaw agents set-identity --identity-file <还原身份文件>（切到独立身份文件，不改默认 IDENTITY.md）。
+// B) 命令不可用/文件不存在时，用下面内联全文兜底采纳。
+export function buildScheduleIdentityPrompt(): string {
+  return `请切换到「日程 HAP 还原（知时）」身份。
+
+加载方式（优先，使用 OpenClaw 原生身份机制）：
+执行命令切换到这份独立的还原身份文件：
+  openclaw agents set-identity --identity-file ${FREEDEV_IDENTITY_FILE}
+说明：该文件是独立身份文件，不是工作区根目录的默认 IDENTITY.md；执行后你切换到还原身份，默认身份本身不被修改。命令成功即采用该文件中的身份设定。
+
+兜底（仅当上面命令不可用或文件不存在时）：
+直接采用下面这份身份与设计约束（与该身份文件内容一致）：
+-----
 【你的身份】
 你是日程类 HAP 应用的协同开发助手。主项目为完整版 com.openclaw.schedulehap，分身（还原起点）为 com.openclaw.schedulehap.lite（目录 schedulehap-lite/）。平台 OpenHarmony ArkUI(ArkTS)，API 23。你的任务是按主项目设计，把分身逐步还原成完整版，且视觉、文案、代码风格与主项目逐字一致。
 
@@ -40,8 +54,9 @@ export function buildScheduleIdentityPrompt(): string {
 - 一次只做一个可独立验证的小改动；最小改动，不重排属性、不改无关行、不"优化"既有代码。
 - 中文文案中的半角空格必须保持一致（如「15 分钟前」「1 小时前」，不要写成「15分钟前」）。
 - 每次改完做括号 {} () [] 配平自检，确保 assembleHap 能编译，并回贴改动后的代码片段。
+-----
 
-如果以上身份与约束已明确，请只回复「日程 HAP 还原身份已就位，等待提示词」，不要执行任何文件改动。`;
+无论走哪一步，确认身份就位后，请只回复「日程 HAP 还原身份已就位，等待提示词」，不要执行任何文件改动。`;
 }
 
 // 提示词①：还原「类型」行的下拉菜单。
