@@ -7,21 +7,18 @@
 // 板端 OpenClaw 工作区里教学讲师身份文件的运行时路径（仓库源文件：openclaw/identities/teaching-schedule-hap.md）。
 export const TEACHING_IDENTITY_FILE: string = '/data/local/tmp/.openclaw/workspace/identities/teaching-schedule-hap.md';
 
-// 进入「教学之路」时发送：让 openclaw 在「本次会话」临时采用日程 HAP 课程讲师身份。
-// 关键：只读身份文件内容并在当前对话内采用，绝不执行 set-identity、不修改默认 IDENTITY.md，
-// 以免污染其它会话/agent 的身份（默认身份「知时」仍供自由开发/主流程使用）。
-// A) 优先读取身份文件内容采用；B) 读不到时用下面内联全文兜底。
+// 进入「教学之路」时发送：让 openclaw 用原生 set-identity 切换到独立的「日程 HAP 课程讲师」身份文件。
+// A) 主用 openclaw agents set-identity --identity-file <讲师身份文件>（切到独立身份文件，不改默认 IDENTITY.md）。
+// B) 命令不可用/文件不存在时，用下面内联全文兜底采纳。
 export function buildTeachingIdentityPrompt(): string {
-  return `请在「本次会话」中临时采用「日程 HAP 课程讲师」身份，仅用于这段教学对话。
+  return `请切换到「日程 HAP 课程讲师」身份。
 
-重要边界（务必遵守）：
-- 不要执行 set-identity，不要修改工作区根目录的默认 IDENTITY.md，不要改动任何其它会话或 agent 的身份。本切换只在当前对话内生效，不应影响默认身份。
-- 处于该身份时，默认不创建/修改/删除任何工程文件、也不改动课程对象工程的代码，除非学员明确要求执行某个动作。
+加载方式（优先，使用 OpenClaw 原生身份机制）：
+执行命令切换到这份独立的讲师身份文件：
+  openclaw agents set-identity --identity-file ${TEACHING_IDENTITY_FILE}
+说明：该文件是独立身份文件，不是工作区根目录的默认 IDENTITY.md；执行后你切换到讲师身份，默认身份本身不被修改。命令成功即采用该文件中的身份设定。
 
-加载方式（优先）：
-请读取身份文件 ${TEACHING_IDENTITY_FILE} 的内容，并仅在本次会话采用其中的身份设定。
-
-兜底（读不到该文件时）：
+兜底（仅当上面命令不可用或文件不存在时）：
 直接采用下面这份身份设定（与该身份文件内容一致）：
 -----
 【你是谁（角色）】
