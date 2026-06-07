@@ -3,6 +3,7 @@ import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
+import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt } from '../model/FreeDevContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -69,6 +70,7 @@ struct Index {
   @State chatInput: string = '';
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
+  @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -258,6 +260,66 @@ struct Index {
     });
   }
 
+  async initFreeDevIdentity(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.studentQuestionEnabled = true;
+    this.workspaceTab = 0;
+    this.chatInput = '';
+    this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 还原身份'));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(buildScheduleIdentityPrompt(), () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
+        this.chatMessages = [...this.chatMessages];
+      });
+      this.freeDevReady = true;
+      this.openClawBusy = false;
+    } catch (error) {
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] free-dev identity init failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 身份初始化失败：' + message));
+      this.openClawBusy = false;
+    }
+  }
+
+  async sendFreeDevPrompt(promptText: string, label: string): Promise<void> {
+    if (!this.freeDevReady) {
+      promptAction.showToast({
+        message: '请先点击“进入自由开发”初始化身份。',
+        duration: 1800
+      });
+      return;
+    }
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('user', label));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(promptText, () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
+        this.chatMessages = [...this.chatMessages];
+      });
+      this.openClawBusy = false;
+    } catch (error) {
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] free-dev prompt failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
+      this.openClawBusy = false;
+    }
+  }
+
   clearCourseState(): void {
     this.client.reset();
 
@@ -280,6 +342,7 @@ struct Index {
     this.chatInput = '';
     this.openClawBusy = false;
     this.studentQuestionEnabled = false;
+    this.freeDevReady = false;
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -587,6 +650,7 @@ struct Index {
             this.tutorialStep = 0;
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
+            this.freeDevReady = false;
           }
         })
 
@@ -672,7 +736,17 @@ struct Index {
               // 1. Top Section
               Column() {
                 if (this.currentMode === 'advanced') {
-                  AdvancedMenuView()
+                  AdvancedMenuView({
+                    freeDevReady: this.freeDevReady,
+                    freeDevBusy: this.openClawBusy,
+                    onEnterFreeDev: () => { this.initFreeDevIdentity(); },
+                    onSendRestoreType: () => {
+                      this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
+                    },
+                    onSendRestoreReminder: () => {
+                      this.sendFreeDevPrompt(buildRestoreReminderPrompt(), '② 还原：提醒 + 响铃开关');
+                    }
+                  })
 
                 } else if (this.tutorialStep === 0) {
                   // Step 0: Choose Course List
