@@ -9,6 +9,7 @@ import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
 import { TeachingPathView } from '../view/TeachingPathView';
+import { FreeDevView } from '../view/FreeDevView';
 import { WorkspaceView } from '../view/WorkspaceView';
 
 @Entry
@@ -75,7 +76,7 @@ struct Index {
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
-  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching'
+  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
 
   aboutToAppear(): void {
@@ -490,11 +491,14 @@ struct Index {
       });
       return;
     }
+    this.advancedScreen = 'freedev';
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
     await this.restoreAdvancedProject();
-    await this.initFreeDevIdentity();
+    if (!this.freeDevReady) {
+      await this.initFreeDevIdentity();
+    }
   }
 
   // Pre-fill states on selecting a task
@@ -872,18 +876,24 @@ struct Index {
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
                       onExplainWithOpenClaw: () => { this.explainScheduleFilePrep(); }
                     })
-                  } else {
-                    AdvancedMenuView({
-                      onEnterTeaching: () => { this.enterTeaching(); },
+                  } else if (this.advancedScreen === 'freedev') {
+                    FreeDevView({
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
-                      onEnterFreeDev: () => { this.enterFreeDev(); },
+                      onBack: () => { this.advancedScreen = 'menu'; },
+                      onReinitIdentity: () => { this.initFreeDevIdentity(); },
                       onSendRestoreType: () => {
                         this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
                       },
                       onSendRestoreReminder: () => {
                         this.sendFreeDevPrompt(buildRestoreReminderPrompt(), '② 还原：提醒 + 响铃开关');
                       }
+                    })
+                  } else {
+                    AdvancedMenuView({
+                      onEnterTeaching: () => { this.enterTeaching(); },
+                      freeDevBusy: this.openClawBusy,
+                      onEnterFreeDev: () => { this.enterFreeDev(); }
                     })
                   }
 

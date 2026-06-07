@@ -1,20 +1,14 @@
 // 高级版菜单视图
 // 从 pages/Index.ets 抽取：高级版左侧的"教学之路 / 自由开发"两个入口卡片。
-// 「自由开发」点击后初始化 openclaw 身份会话，并展示两个还原提示词按钮。
+// 两个入口点击后各自进入独立子界面（教学之路 / 自由开发视图）。
 
 @Component
 export struct AdvancedMenuView {
-  // 点击「进入教学之路」：进入教学关卡
+  // 点击「进入教学之路」：进入教学子界面
   onEnterTeaching: () => void = () => {};
-  // 点击「进入自由开发」：初始化 openclaw 身份会话
+  // 点击「进入自由开发」：进入自由开发子界面
   onEnterFreeDev: () => void = () => {};
-  // 发送提示词①：还原「类型」下拉菜单
-  onSendRestoreType: () => void = () => {};
-  // 发送提示词②：还原「提醒」下拉与「响铃提醒」开关
-  onSendRestoreReminder: () => void = () => {};
-  // 身份是否已初始化（决定是否展示两个提示词按钮）
-  @Prop freeDevReady: boolean = false;
-  // openclaw 是否正在处理（处理中禁用按钮）
+  // openclaw 是否正在处理（处理中禁用入口按钮）
   @Prop freeDevBusy: boolean = false;
 
   build() {
@@ -66,7 +60,7 @@ export struct AdvancedMenuView {
           .margin({ bottom: 12 })
           .lineHeight(16)
 
-        Button(this.freeDevReady ? '重新初始化身份' : '进入自由开发')
+        Button('进入自由开发')
           .width('100%')
           .height(34)
           .fontSize(12)
@@ -75,35 +69,6 @@ export struct AdvancedMenuView {
           .enabled(!this.freeDevBusy)
           .opacity(this.freeDevBusy ? 0.5 : 1)
           .onClick(() => { this.onEnterFreeDev(); })
-
-        if (this.freeDevReady) {
-          Text('身份已就位，选择提示词发送给 OpenClaw：')
-            .fontSize(11)
-            .fontColor('#a6e3a1')
-            .margin({ top: 12, bottom: 8 })
-            .alignSelf(ItemAlign.Start)
-
-          Button('① 还原：类型下拉菜单')
-            .width('100%')
-            .height(34)
-            .fontSize(12)
-            .backgroundColor('#11305a')
-            .fontColor('#89b4fa')
-            .enabled(!this.freeDevBusy)
-            .opacity(this.freeDevBusy ? 0.5 : 1)
-            .margin({ bottom: 8 })
-            .onClick(() => { this.onSendRestoreType(); })
-
-          Button('② 还原：提醒 + 响铃开关')
-            .width('100%')
-            .height(34)
-            .fontSize(12)
-            .backgroundColor('#11305a')
-            .fontColor('#89b4fa')
-            .enabled(!this.freeDevBusy)
-            .opacity(this.freeDevBusy ? 0.5 : 1)
-            .onClick(() => { this.onSendRestoreReminder(); })
-        }
       }
       .width('100%')
       .padding(14)
