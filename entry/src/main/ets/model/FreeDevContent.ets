@@ -48,20 +48,27 @@ export function buildRestoreTypeMenuPrompt(): string {
 
 只动 ${ADVANCED_INDEX_ETS}，最小改动：
 1. 定位：新建/编辑界面里的「类型」行 Row（结构为 Text('类型') + Blank() + Text(this.category) + Text('›')），行属性为 .width('100%').height(62).padding({ left: 20, right: 18 })。
-2. 在该行 .padding(...) 之后追加 .bindMenu，三个选项写回 this.category：普通 / 工作 / 学习（对应分类色 #F08C46 / #1677FF / #58B879，颜色用于值文本/标记的既有逻辑，不要新增样式）。
+2. 把 .bindMenu 加在**右侧的值文本 Text(this.category) 上**（不要加在整行 Row 上，也不要加在 Text('类型') 上）。三个选项写回 this.category：普通 / 工作 / 学习（对应分类色 #F08C46 / #1677FF / #58B879，颜色用于值文本/标记的既有逻辑，不要新增样式）。
+   关键：菜单必须从右侧「类型」当前值（普通日程）的正下方弹出，而不是屏幕左上角——所以 .bindMenu 一定要绑在右侧那个值 Text 上，并传 { placement: Placement.Bottom } 让它在该值下方展开。
 3. 复用现有 this.category（@State 已存在），不新增状态、不改默认值，不碰别的行/文件。
 4. 改完做括号配平自检，确保 assembleHap 能编译。
 
-参考写法（照此还原，选项文案与顺序需与主项目一致）：
+参考写法（照此还原；.bindMenu 绑在右侧值文本上、从其下方弹出，选项文案与顺序需与主项目一致）：
 \`\`\`ts
+Row() {
+  Text('类型')// …原有样式不动
+  Blank()
+  Text(this.category)// …原有样式不动
+    .bindMenu([
+      { value: '普通', action: () => { this.category = '普通' } },
+      { value: '工作', action: () => { this.category = '工作' } },
+      { value: '学习', action: () => { this.category = '学习' } }
+    ], { placement: Placement.Bottom })
+  Text('›')// …原有样式不动
+}
 .width('100%')
 .height(62)
 .padding({ left: 20, right: 18 })
-.bindMenu([
-  { value: '普通', action: () => { this.category = '普通' } },
-  { value: '工作', action: () => { this.category = '工作' } },
-  { value: '学习', action: () => { this.category = '学习' } }
-])
 \`\`\`
 完成后回贴改动后的这段代码，并说明改了哪几行。` + buildAndReportStep();
 }
@@ -74,7 +81,7 @@ export function buildRestoreReminderPrompt(): string {
 
 只动 ${ADVANCED_INDEX_ETS}，最小改动：
 1. 定位：在「更多设置」卡片中、原本紧邻「重复」行之后的位置，加回两行（顺序：先「提醒」下拉行，再「响铃提醒」开关行）。
-2. 「提醒」行：结构 Text('提醒') + Blank() + Text(this.reminderMode) + Text('›')，.width('100%').height(62).padding({ left: 20, right: 18 })，并在 .padding(...) 后追加 .bindMenu，选项写回 this.reminderMode：不提醒 / 准时 / 15 分钟前 / 1 小时前（半角空格必须一致）。
+2. 「提醒」行：结构 Text('提醒') + Blank() + Text(this.reminderMode) + Text('›')，.width('100%').height(62).padding({ left: 20, right: 18 })。把 .bindMenu 加在**右侧的值文本 Text(this.reminderMode) 上**（不要加在整行 Row 上），并传 { placement: Placement.Bottom } 让菜单从该值正下方弹出（不要弹到屏幕左上角）。选项写回 this.reminderMode：不提醒 / 准时 / 15 分钟前 / 1 小时前（半角空格必须一致）。
 3. 「响铃提醒」行：结构 Text('响铃提醒') + Blank() + this.ToggleSwitch(this.ringReminder, () => { this.ringReminder = !this.ringReminder })，行高 66、padding({ left: 20, right: 18 })。
 4. 复用现有 this.reminderMode 与 this.ringReminder（@State 已存在），不新增状态、不改默认值，不碰别的行/文件。
 5. 改完做括号配平自检，确保 assembleHap 能编译。
@@ -85,17 +92,17 @@ Row() {
   Text('提醒').fontSize(17).fontWeight(FontWeight.Medium).fontColor('#161616')
   Blank()
   Text(this.reminderMode).fontSize(15).fontColor('#777B82')
+    .bindMenu([
+      { value: '不提醒', action: () => { this.reminderMode = '不提醒' } },
+      { value: '准时', action: () => { this.reminderMode = '准时' } },
+      { value: '15 分钟前', action: () => { this.reminderMode = '15 分钟前' } },
+      { value: '1 小时前', action: () => { this.reminderMode = '1 小时前' } }
+    ], { placement: Placement.Bottom })
   Text('›').fontSize(25).fontColor('#B5B8BD')
 }
 .width('100%')
 .height(62)
 .padding({ left: 20, right: 18 })
-.bindMenu([
-  { value: '不提醒', action: () => { this.reminderMode = '不提醒' } },
-  { value: '准时', action: () => { this.reminderMode = '准时' } },
-  { value: '15 分钟前', action: () => { this.reminderMode = '15 分钟前' } },
-  { value: '1 小时前', action: () => { this.reminderMode = '1 小时前' } }
-])
 
 Row() {
   Text('响铃提醒').fontSize(17).fontWeight(FontWeight.Medium).fontColor('#161616')
