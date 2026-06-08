@@ -415,6 +415,20 @@ export class OpenClawClient {
     }
   }
 
+  // 拉取当前会话完整历史的原始响应（含 thinking/toolCall/toolResult 富内容块），
+  // 供页面在一轮结束后解析并在对话区渲染「思考→工具→结果→最终」完整过程。
+  // 原生流（delta/final）只下发助手可见文本、不含工具步骤，故富展示需走 chat.history。
+  // 若期间课程被重置（代际变化）则抛 'Course reset'，由调用方放弃，不污染新课程对话。
+  async fetchHistoryRaw(): Promise<string> {
+    if (!this.sessionKey) {
+      return '';
+    }
+    let epoch = this.resetEpoch;
+    let res = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.sessionKey), epoch);
+    this.ensureEpoch(epoch);
+    return res;
+  }
+
   // 由页面在收到 chat 'error'/'aborted' 事件时调用，拒绝当前对话轮次。
   failTurn(err: Error): void {
     this.activeRunId = '';

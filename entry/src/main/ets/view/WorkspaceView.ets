@@ -273,38 +273,115 @@ export struct WorkspaceView {
                   .alignItems(HorizontalAlign.Center)
                 } else {
                   ForEach(this.chatMessages, (msg: ChatMessage) => {
-                    Column() {
-                      Row() {
-                        Text(msg.sender === 'user' ? 'You' : 'OpenClaw')
-                          .fontSize(11)
-                          .fontWeight(FontWeight.Bold)
-                          .fontColor(msg.sender === 'user' ? '#f5c2e7' : '#a6e3a1')
-                        Text(msg.sender === 'user' ? '学生输入' : 'Assistant')
-                          .fontSize(9)
-                          .fontColor('#6c7086')
-                          .margin({ left: 6 })
-                      }
-                      .width('100%')
-                      .justifyContent(msg.sender === 'user' ? FlexAlign.End : FlexAlign.Start)
-                      .margin({ bottom: 4 })
-
-                      Row() {
+                    if (msg.kind === 'thinking') {
+                      // OpenClaw 思考过程：暗色斜体块，点按展开/收起。
+                      Column() {
+                        Row() {
+                          Text('💭 思考过程')
+                            .fontSize(11).fontWeight(FontWeight.Bold).fontColor('#9399b2')
+                          Text(msg.collapsed ? '展开' : '收起')
+                            .fontSize(10).fontColor('#6c7086').margin({ left: 8 })
+                        }
+                        .width('100%').justifyContent(FlexAlign.Start).margin({ bottom: 4 })
                         Text(msg.text)
-                          .fontSize(13)
-                          .fontColor(msg.sender === 'user' ? '#1e1e2e' : '#cdd6f4')
-                          .lineHeight(19)
+                          .fontSize(12).fontColor('#9399b2').fontStyle(FontStyle.Italic).lineHeight(18)
+                          .maxLines(msg.collapsed ? 3 : 100000)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
                           .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
                           .copyOption(CopyOptions.LocalDevice)
+                          .width('100%')
                       }
-                      .padding({ left: 14, right: 14, top: 11, bottom: 11 })
-                      .backgroundColor(msg.sender === 'user' ? '#f5c2e7' : '#313244')
-                      .borderRadius(10)
-                      .alignSelf(msg.sender === 'user' ? ItemAlign.End : ItemAlign.Start)
-                      .width(msg.sender === 'user' ? '72%' : '82%')
-                      .margin({ bottom: 16 })
+                      .width('100%').padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                      .backgroundColor('#1e1e2e').borderRadius(8)
+                      .border({ width: { left: 3 }, color: '#585b70' })
+                      .margin({ bottom: 10 })
+                      .onClick(() => { msg.collapsed = !msg.collapsed; this.chatMessages = [...this.chatMessages]; })
+                    } else if (msg.kind === 'toolCall') {
+                      // OpenClaw 调用工具：工具名 + 参数摘要（read 的路径 / exec 的命令）。
+                      Column() {
+                        Row() {
+                          Text('🔧 调用工具')
+                            .fontSize(11).fontWeight(FontWeight.Bold).fontColor('#f9e2af')
+                          Text(msg.toolName)
+                            .fontSize(11).fontWeight(FontWeight.Bold).fontColor('#fab387')
+                            .fontFamily('monospace').margin({ left: 6 })
+                        }
+                        .width('100%').justifyContent(FlexAlign.Start).margin({ bottom: msg.toolArgs.length > 0 ? 4 : 0 })
+                        if (msg.toolArgs.length > 0) {
+                          Text(msg.toolArgs)
+                            .fontSize(11).fontColor('#cdd6f4').fontFamily('monospace').lineHeight(16)
+                            .maxLines(msg.collapsed ? 3 : 100000)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                            .copyOption(CopyOptions.LocalDevice)
+                            .width('100%')
+                        }
+                      }
+                      .width('100%').padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                      .backgroundColor('#1e1e2e').borderRadius(8)
+                      .border({ width: { left: 3 }, color: '#f9e2af' })
+                      .margin({ bottom: 10 })
+                      .onClick(() => { msg.collapsed = !msg.collapsed; this.chatMessages = [...this.chatMessages]; })
+                    } else if (msg.kind === 'toolResult') {
+                      // 工具返回结果：等宽，默认折叠，出错标红，点按展开/收起。
+                      Column() {
+                        Row() {
+                          Text(msg.isError ? '⚠ 工具返回（错误）' : '📄 工具返回')
+                            .fontSize(11).fontWeight(FontWeight.Bold)
+                            .fontColor(msg.isError ? '#f38ba8' : '#a6e3a1')
+                          Text(msg.toolName)
+                            .fontSize(10).fontColor('#6c7086').fontFamily('monospace').margin({ left: 6 })
+                          Text(msg.collapsed ? '展开' : '收起')
+                            .fontSize(10).fontColor('#6c7086').margin({ left: 8 })
+                        }
+                        .width('100%').justifyContent(FlexAlign.Start).margin({ bottom: 4 })
+                        Text(msg.text)
+                          .fontSize(11).fontColor('#bac2de').fontFamily('monospace').lineHeight(16)
+                          .maxLines(msg.collapsed ? 8 : 100000)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                          .copyOption(CopyOptions.LocalDevice)
+                          .width('100%')
+                      }
+                      .width('100%').padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                      .backgroundColor('#181825').borderRadius(8)
+                      .border({ width: { left: 3 }, color: msg.isError ? '#f38ba8' : '#a6e3a1' })
+                      .margin({ bottom: 10 })
+                      .onClick(() => { msg.collapsed = !msg.collapsed; this.chatMessages = [...this.chatMessages]; })
+                    } else {
+                      Column() {
+                        Row() {
+                          Text(msg.sender === 'user' ? 'You' : 'OpenClaw')
+                            .fontSize(11)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(msg.sender === 'user' ? '#f5c2e7' : '#a6e3a1')
+                          Text(msg.sender === 'user' ? '学生输入' : 'Assistant')
+                            .fontSize(9)
+                            .fontColor('#6c7086')
+                            .margin({ left: 6 })
+                        }
+                        .width('100%')
+                        .justifyContent(msg.sender === 'user' ? FlexAlign.End : FlexAlign.Start)
+                        .margin({ bottom: 4 })
+
+                        Row() {
+                          Text(msg.text)
+                            .fontSize(13)
+                            .fontColor(msg.sender === 'user' ? '#1e1e2e' : '#cdd6f4')
+                            .lineHeight(19)
+                            .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                            .copyOption(CopyOptions.LocalDevice)
+                        }
+                        .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+                        .backgroundColor(msg.sender === 'user' ? '#f5c2e7' : '#313244')
+                        .borderRadius(10)
+                        .alignSelf(msg.sender === 'user' ? ItemAlign.End : ItemAlign.Start)
+                        .width(msg.sender === 'user' ? '72%' : '82%')
+                        .margin({ bottom: 16 })
+                      }
+                      .width('100%')
+                      .alignItems(msg.sender === 'user' ? HorizontalAlign.End : HorizontalAlign.Start)
                     }
-                    .width('100%')
-                    .alignItems(msg.sender === 'user' ? HorizontalAlign.End : HorizontalAlign.Start)
                   })
                 }
               }
