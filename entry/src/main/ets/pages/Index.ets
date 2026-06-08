@@ -51,6 +51,8 @@ struct Index {
     'http://127.0.0.1:7681/read-file?path=%2Fdata%2Flocal%2Ftmp%2Foh61-hapbuild%2Fproject%2Fentry%2Fsrc%2Fmain%2Fets%2Fpages%2FIndex.ets';
   // 高级版（自由发挥/教学共用的 schedulehap-lite 工程）还原接口：刷回初始备份。
   private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
+  // 高级版「装回最原始基线 HAP」接口（板端直跑 install_initial_advanced.sh，不经 OpenClaw）。
+  private readonly advancedInstallInitialUrl: string = 'http://127.0.0.1:7681/install-initial';
 
   // Step Statuses (0: pending, 1: active, 2: success)
   @State step1Status: number = 0;
@@ -89,6 +91,9 @@ struct Index {
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
+  // 初始化分步进度：0=正在还原工程（HTTP 直连板端）；1=正在初始化身份（经 OpenClaw）。
+  // 驱动遮罩文案与两步进度点，让初始化卡在哪一步一目了然。
+  @State projectInitStep: number = 0;
   // 向 OpenClaw 对话发送消息时的全屏「AI 助手正在处理」加载遮罩，与项目初始化遮罩同款。
   // 同样在 OpenClaw 一开始返回内容（首个流式/最终/错误事件）时立即关闭。
   @State aiProcessingOverlayVisible: boolean = false;
@@ -130,6 +135,12 @@ struct Index {
   // Async helper for delays
   delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // 超时哨兵：ms 后 resolve('__timeout__')，用于与 OpenClaw 一轮 startTurn 竞速，
+  // 网关卡住（迟迟不下发首个事件）时不至于无限卡在初始化遮罩。
+  private timeoutSentinel(ms: number): Promise<string> {
+    return new Promise((resolve) => setTimeout(() => resolve('__timeout__'), ms));
   }
 
   getErrorMessage(error: Object): string {
@@ -689,12 +700,25 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 还原身份'));
     this.openClawBusy = true;
     try {
-      await this.client.startTurn(buildScheduleIdentityPrompt(), () => {
-        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
-        this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID);
+      // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
+      let raceResult = await Promise.race([
+        this.client.startTurn(buildScheduleIdentityPrompt(), () => {
+          this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
+          this.chatMessages = [...this.chatMessages];
+        }, FREEDEV_AGENT_ID).then(() => 'ok'),
+        this.timeoutSentinel(60000)
+      ]);
       // 被重置过就不再标记就绪（旧身份初始化作废），避免误置 freeDevReady 让旧会话被当成已就绪。
       if (epoch !== this.courseEpoch) {
+        return;
+      }
+      if (raceResult === '__timeout__') {
+        this.projectInitOverlayVisible = false;
+        this.openClawBusy = false;
+        this.currentExecutionLog += '[openclaw] free-dev identity init timeout (60s)\n';
+        this.chatMessages.push(new ChatMessage('assistant',
+          '身份初始化超时（网关 60 秒内未响应）。请确认板端 OpenClaw 网关与 shell-bridge 在运行，然后点「重置开发」后重新进入自由开发。'));
+        this.chatMessages = [...this.chatMessages];
         return;
       }
       this.freeDevReady = true;
@@ -768,12 +792,25 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日志 HAP 课程讲师身份'));
     this.openClawBusy = true;
     try {
-      await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
-        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
-        this.chatMessages = [...this.chatMessages];
-      }, TEACHING_AGENT_ID);
+      // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
+      let raceResult = await Promise.race([
+        this.client.startTurn(buildTeachingIdentityPrompt(), () => {
+          this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
+          this.chatMessages = [...this.chatMessages];
+        }, TEACHING_AGENT_ID).then(() => 'ok'),
+        this.timeoutSentinel(60000)
+      ]);
       // 被重置过就不再标记就绪（旧身份初始化作废）。
       if (epoch !== this.courseEpoch) {
+        return;
+      }
+      if (raceResult === '__timeout__') {
+        this.projectInitOverlayVisible = false;
+        this.openClawBusy = false;
+        this.currentExecutionLog += '[openclaw] teaching identity init timeout (60s)\n';
+        this.chatMessages.push(new ChatMessage('assistant',
+          '讲师身份初始化超时（网关 60 秒内未响应）。请确认板端 OpenClaw 网关与 shell-bridge 在运行，然后点「重置开发」后重新进入教学之路。'));
+        this.chatMessages = [...this.chatMessages];
         return;
       }
       this.teachingReady = true;
@@ -875,6 +912,7 @@ struct Index {
     this.teachingReady = false;
     this.teachingFlowStep = 0;
     this.projectInitOverlayVisible = false;
+    this.projectInitStep = 0;
     this.aiProcessingOverlayVisible = false;
     this.advancedFiles = [];
     this.advancedFilesError = '';
@@ -925,22 +963,62 @@ struct Index {
   // 把板端高级版工程（/data/local/tmp/advanced-hapbuild/project）刷回初始备份，
   // 确保每次进入教学/自由发挥都是最原始的模板（OpenClaw 交互会改动该工程）。
   async restoreAdvancedProject(): Promise<boolean> {
-    try {
-      let out = await this.client.requestText(this.advancedResetUrl, http.RequestMethod.GET);
-      this.currentExecutionLog += '[reset-advanced] ' + out + '\n';
-      let ok = out.indexOf('ok:') >= 0;
-      this.chatMessages.push(new ChatMessage('assistant', ok
-        ? '日程工程已还原到初始模板，可以开始本关。'
-        : '日程工程还原未成功（将继续，但工程可能不是初始状态）：' + out));
-      this.chatMessages = [...this.chatMessages];
-      return ok;
-    } catch (e) {
-      let message = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
-      this.currentExecutionLog += '[reset-advanced] failed: ' + message + '\n';
-      this.chatMessages.push(new ChatMessage('assistant', '日程工程还原请求失败（将继续）：' + message));
-      this.chatMessages = [...this.chatMessages];
-      return false;
+    // 还原是板端直连脚本（/reset-advanced → restore_advanced_project.sh），偶发失败/超时，
+    // 故最多重试 3 次，每次间隔 800ms；全部失败再给出明确反馈（而不是默默用脏工程继续）。
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(this.advancedResetUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[reset-advanced] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', '日程工程已还原到初始模板，可以开始本关。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[reset-advanced] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
     }
+    this.chatMessages.push(new ChatMessage('assistant',
+      '日程工程还原多次未成功（已重试 ' + maxAttempts.toString() + ' 次，将继续，但工程可能不是初始状态）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
+  }
+
+  // 把板上已安装的日程 HAP 还原成最原始基线包：板端直跑 install_initial_advanced.sh
+  // （/install-initial → 卸载+安装+启动基线签名包，不编译不签名），不再经 OpenClaw 发提示词，秒级完成。
+  // 与 restoreAdvancedProject 同样最多重试 3 次（间隔 800ms），失败给明确反馈但不阻断后续身份确认。
+  async installInitialAdvanced(): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(this.advancedInstallInitialUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[install-initial] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', '板上日程 HAP 已还原为最原始模板。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[install-initial] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.chatMessages.push(new ChatMessage('assistant',
+      '板上日程 HAP 初始化安装多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
   }
 
   // 进入「教学之路」：首次进入刷回初始工程并初始化讲师身份；
@@ -960,6 +1038,7 @@ struct Index {
     }
     let epoch = this.courseEpoch;
     this.advancedScreen = 'teaching';
+    this.projectInitStep = 0;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
@@ -970,6 +1049,9 @@ struct Index {
       return;
     }
     if (!this.teachingReady) {
+      this.projectInitStep = 1;
+      // 教学之路只讲解、不改板上日志 HAP，且与自由发挥的日程 HAP 是不同应用，
+      // 故此处不调用 install-initial（那是日程 HAP 基线包），保持教学流程原行为。
       await this.initTeachingIdentity();
     }
   }
@@ -991,6 +1073,7 @@ struct Index {
     }
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
+    this.projectInitStep = 0;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
@@ -1001,6 +1084,12 @@ struct Index {
       return;
     }
     if (!this.freeDevReady) {
+      this.projectInitStep = 1;
+      // C2：板上 HAP 还原改为板端直跑（不再经 OpenClaw 提示词），秒级完成。
+      await this.installInitialAdvanced();
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       await this.initFreeDevIdentity();
     }
   }
@@ -2150,7 +2239,13 @@ struct Index {
     .backgroundColor('#1e1e2e')
 
     if (this.projectInitOverlayVisible) {
-      this.focusLoadingOverlay('正在初始化项目', '还原工程模板并准备 OpenClaw，请稍候', 0)
+      if (this.projectInitStep >= 1) {
+        // 第二步：还原板上 HAP（自由发挥经板端直跑）并经 OpenClaw 初始化身份。
+        this.focusLoadingOverlay('正在初始化项目', '② 正在初始化身份，请稍候', 2)
+      } else {
+        // 第一步：HTTP 直连板端还原工程源码模板。
+        this.focusLoadingOverlay('正在初始化项目', '① 正在还原日程工程模板，请稍候', 1)
+      }
     }
 
     if (this.aiProcessingOverlayVisible) {

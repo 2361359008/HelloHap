@@ -10,6 +10,9 @@ const DEFAULT_ABILITY = 'EntryAbility';
 const DEFAULT_MODULE = 'entry';
 const COURSE_RESTORE_SCRIPT = '/data/local/tmp/oh61-hapbuild/restore_course_project.sh';
 const ADVANCED_RESTORE_SCRIPT = '/data/local/tmp/advanced-hapbuild/restore_advanced_project.sh';
+// 进入自由开发/教学时把板上已安装的日程 HAP 还原成最原始基线包（只卸载+安装+启动，不编译不签名）。
+// 以前由 OpenClaw 在身份初始化那一轮发提示词让 Agent 执行，慢且依赖 LLM；现改为板端直跑、秒级完成。
+const ADVANCED_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/advanced-hapbuild/install_initial_advanced.sh';
 const HDC_SHELL_GROUPS = [0, 1006, 1007, 2000, 3009];
 const ALLOWED_READ_PREFIXES = [
   '/data/local/tmp/oh61-hapbuild/project/',
@@ -237,6 +240,10 @@ const server = createServer(async (req, res) => {
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-advanced') {
     sendResult(res, await runFixedScript(ADVANCED_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-initial') {
+    sendResult(res, await runFixedScript(ADVANCED_INSTALL_INITIAL_SCRIPT, 60000));
     return;
   }
   if (req.method === 'GET' && req.url.startsWith('/read-file')) {
