@@ -366,6 +366,8 @@ export struct WorkspaceView {
                       .fontFamily('monospace')
                       .lineHeight(17)
                       .padding(14)
+                      .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                      .copyOption(CopyOptions.LocalDevice)
                   }
                   .alignItems(HorizontalAlign.Start)
                   .width('100%')
@@ -517,6 +519,8 @@ export struct WorkspaceView {
                     .fontFamily('monospace')
                     .lineHeight(18)
                     .padding(16)
+                    .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                    .copyOption(CopyOptions.LocalDevice)
                 }
                 .alignItems(HorizontalAlign.Start)
                 .width('100%')
