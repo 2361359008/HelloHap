@@ -437,15 +437,19 @@ struct Index {
       return;
     }
     this.courseResetting = true;
+    // 先无条件清掉会话与课程状态（含 client.reset() 关旧连接 + freeDevReady/teachingReady=false）。
+    // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
+    // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
+    // 简单关还原脚本轻量、基本不失败，所以一直能开新会话——这正是两者表现差异的根因。
+    this.clearCourseState();
+    this.sourceFileContent = '';
+    this.sourceFileError = '';
     try {
       let resetUrl = this.currentMode === 'advanced' ? this.advancedResetUrl : 'http://127.0.0.1:7681/reset-course';
       await this.client.requestText(
         resetUrl,
         http.RequestMethod.GET
       );
-      this.clearCourseState();
-      this.sourceFileContent = '';
-      this.sourceFileError = '';
       this.showCourseResetNotice(true);
     } catch (e) {
       let message = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
