@@ -101,9 +101,29 @@ struct Index {
   // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
   private courseEpoch: number = 0;
 
+  // 实时富展示：一轮进行中轮询 chat.history，把已产生的 思考/工具/结果 实时渲染到对话区。
+  // historyPollActive 控制轮询循环；turnRichActive 标记本轮已被富展示接管（接管后忽略 delta 纯文本）。
+  private historyPollActive: boolean = false;
+  private turnRichActive: boolean = false;
+  private historyShapeLogged: boolean = false;
+
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
       this.handleChatStreamEvent(payload);
+    };
+    // 诊断：把非 chat 的网关事件名按形态首次出现记入日志（每轮去重），
+    // 用于判断网关是否实时下发工具/思考事件（若有则可改为事件驱动的实时展示）。
+    this.client.onGatewayEvent = (eventName: string, payload: Record<string, Object>) => {
+      let shape = 'gw:' + eventName + ':' + Object.keys(payload).sort().join(',');
+      if (this.seenChatEventShapes.has(shape)) {
+        return;
+      }
+      this.seenChatEventShapes.add(shape);
+      let dump = JSON.stringify(payload);
+      if (dump.length > 600) {
+        dump = dump.substring(0, 600) + '…';
+      }
+      this.currentExecutionLog += '[gwevent ' + eventName + '] ' + dump + '\n';
     };
   }
 
@@ -258,6 +278,14 @@ struct Index {
     }
 
     if (state === 'delta') {
+      // 首个 delta 即开始轮询 chat.history，实时把 思考/工具/结果 渲染到对话区。
+      if (!this.historyPollActive) {
+        this.startHistoryPolling(this.courseEpoch);
+      }
+      // 已被富展示接管：纯文本由轮询/最终补全，跳过以免与分段气泡相互覆盖闪烁。
+      if (this.turnRichActive) {
+        return;
+      }
       if (this.chatMessages.length > 0) {
         let lastMsg = this.chatMessages[this.chatMessages.length - 1];
         if (lastMsg.sender === 'assistant') {
@@ -272,34 +300,40 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }
     } else if (state === 'final') {
+      this.stopHistoryPolling();
       // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
       // 若已有实质过程文案则保留并补一句「已完成」；否则给一句明确的完成提示。
       let trimmedFinal = text.trim();
       let isEmptyFinal = (trimmedFinal === '' || trimmedFinal === 'NO_REPLY');
       let fallbackFinal = '已执行完成，但本轮未返回文字总结。可在「工作区」查看改动的代码与编译/安装结果。';
-      if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
-        let lastMsg = this.chatMessages[this.chatMessages.length - 1];
-        if (!isEmptyFinal) {
-          lastMsg.text = text;
-        } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
-          lastMsg.text = fallbackFinal;
+      // 富展示已接管时，对话区由 history 分段驱动，不再改纯文本气泡（否则会覆盖分段）。
+      if (!this.turnRichActive) {
+        if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
+          let lastMsg = this.chatMessages[this.chatMessages.length - 1];
+          if (!isEmptyFinal) {
+            lastMsg.text = text;
+          } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
+            lastMsg.text = fallbackFinal;
+          } else {
+            lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
+          }
         } else {
-          lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
+          this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
         }
-      } else {
-        this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
+        this.chatMessages = [...this.chatMessages];
       }
-      this.chatMessages = [...this.chatMessages];
 
       this.client.completeTurn(isEmptyFinal ? fallbackFinal : text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
       this.seenChatEventShapes.clear();
 
-      // 一轮结束后异步拉取历史，把本轮「思考→工具调用→工具返回→最终回复」完整过程
-      // 渲染到对话区（原生流只给最终文本，过程需走 chat.history）。失败/被重置则静默保留纯文本。
-      this.enrichTurnFromHistory(this.courseEpoch);
+      // 收尾再拉一次历史，补齐完整过程与最终回复；持久化可能略有延迟，1.2s 后再补一次。
+      let finalEpoch = this.courseEpoch;
+      this.enrichTurnFromHistory(finalEpoch);
+      setTimeout(() => { this.enrichTurnFromHistory(finalEpoch); }, 1200);
     } else if (state === 'error' || state === 'aborted') {
+      this.stopHistoryPolling();
       let errorMsg = 'OpenClaw 调用失败/中断';
       if (payload['error']) {
         errorMsg = 'OpenClaw 错误: ' + String(payload['error']);
@@ -323,10 +357,47 @@ struct Index {
     return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
   }
 
-  // 一轮结束后拉取会话历史，把本轮（历史里最后一条 user 之后的所有消息）解析成
-  // 「思考 / 工具调用 / 工具返回 / 文本」分段，替换对话区里本轮的纯文本助手气泡，
-  // 呈现与 WebUI 类似的完整过程。任何异常或课程被重置都静默放弃，保留已显示的纯文本。
+  // 开始/停止本轮的 chat.history 轮询（递归 setTimeout，避免请求重叠）。
+  private startHistoryPolling(epoch: number): void {
+    if (this.historyPollActive) {
+      return;
+    }
+    this.historyPollActive = true;
+    this.turnRichActive = false;
+    this.historyShapeLogged = false;
+    this.scheduleHistoryPoll(epoch);
+  }
+
+  private stopHistoryPolling(): void {
+    this.historyPollActive = false;
+  }
+
+  private scheduleHistoryPoll(epoch: number): void {
+    setTimeout(() => {
+      if (!this.historyPollActive || epoch !== this.courseEpoch) {
+        return;
+      }
+      this.applyHistoryToTurn(epoch).then(() => {
+        if (this.historyPollActive && epoch === this.courseEpoch) {
+          this.scheduleHistoryPoll(epoch);
+        }
+      }).catch(() => {
+        if (this.historyPollActive && epoch === this.courseEpoch) {
+          this.scheduleHistoryPoll(epoch);
+        }
+      });
+    }, 1500);
+  }
+
+  // final 收尾时再拉一次历史，补齐完整过程与最终回复（与轮询共用同一渲染逻辑）。
   private async enrichTurnFromHistory(epoch: number): Promise<void> {
+    await this.applyHistoryToTurn(epoch);
+  }
+
+  // 拉取会话历史，把本轮（历史里最后一条 user 之后的所有消息）解析成
+  // 「思考 / 工具调用 / 工具返回 / 文本」分段，替换对话区里本轮的纯文本助手气泡，
+  // 呈现与 WebUI 类似的实时过程。任何异常或课程被重置都静默放弃，保留已显示的纯文本。
+  private async applyHistoryToTurn(epoch: number): Promise<void> {
     try {
       let raw = await this.client.fetchHistoryRaw();
       if (epoch !== this.courseEpoch || !raw) {
@@ -334,10 +405,30 @@ struct Index {
       }
       let payload = JSON.parse(raw) as Record<string, Object>;
       let messages = this.extractHistoryMessages(payload);
-      // 诊断：紧凑记录历史响应结构，便于核对/排错（截图即可）。
-      this.currentExecutionLog += '[history] msgs=' + messages.length.toString()
-        + ' keys=' + Object.keys(payload).sort().join(',') + '\n';
+      // 诊断：每轮仅首次记录历史响应结构，便于核对/排错（截图即可），不刷屏。
+      if (!this.historyShapeLogged) {
+        this.historyShapeLogged = true;
+        this.currentExecutionLog += '[history] msgs=' + messages.length.toString()
+          + ' keys=' + Object.keys(payload).sort().join(',') + '\n';
+      }
       if (messages.length === 0) {
+        return;
+      }
+      // 持久化时序守卫：历史里的 user 条数 < 对话区 user 气泡数，说明本轮还没写入历史，
+      // 此时套用会错把上一轮内容贴到当前轮，故跳过等待下次轮询。
+      let histUsers = 0;
+      for (let i = 0; i < messages.length; i++) {
+        if (String(messages[i]['role']) === 'user') {
+          histUsers++;
+        }
+      }
+      let uiUsers = 0;
+      for (let i = 0; i < this.chatMessages.length; i++) {
+        if (this.chatMessages[i].sender === 'user') {
+          uiUsers++;
+        }
+      }
+      if (histUsers < uiUsers) {
         return;
       }
       let segments = this.buildTurnSegments(messages);
@@ -355,6 +446,8 @@ struct Index {
         ? this.chatMessages.slice(0, lastUserIdx + 1)
         : this.chatMessages.slice(0, this.chatMessages.length);
       this.chatMessages = head.concat(segments);
+      // 标记本轮已被富展示接管：后续 delta 不再写纯文本气泡。
+      this.turnRichActive = true;
     } catch (e) {
       // 静默：富展示是增强项，失败不影响已显示的最终回复。
     }
@@ -755,6 +848,8 @@ struct Index {
     // 代际已变而放弃继续启动旧流程（如已被重置后才返回的 restoreAdvancedProject）。
     this.courseEpoch++;
     this.client.reset();
+    this.stopHistoryPolling();
+    this.turnRichActive = false;
 
     this.selectedTaskIndex = 0;
     this.maxUnlockedLevel = 1;
