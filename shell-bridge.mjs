@@ -1,6 +1,6 @@
 const { execFile } = require('child_process');
 const { createServer } = require('http');
-const { readFileSync, existsSync } = require('fs');
+const { readFileSync, existsSync, readdirSync, statSync } = require('fs');
 
 const PORT = 7681;
 const OPENCLAW_CONFIG = '/data/local/tmp/.openclaw/openclaw.json';
@@ -13,8 +13,20 @@ const ADVANCED_RESTORE_SCRIPT = '/data/local/tmp/advanced-hapbuild/restore_advan
 const HDC_SHELL_GROUPS = [0, 1006, 1007, 2000, 3009];
 const ALLOWED_READ_PREFIXES = [
   '/data/local/tmp/oh61-hapbuild/project/',
+  '/data/local/tmp/advanced-hapbuild/project/',
   '/data/local/tmp/.openclaw/workspace/memory/',
 ];
+// 允许「目录列举」的根目录（用于源码区浏览整个工程的文件树）。
+const ALLOWED_LIST_DIRS = [
+  '/data/local/tmp/oh61-hapbuild/project',
+  '/data/local/tmp/advanced-hapbuild/project',
+];
+// 列举文件树时跳过的目录名（构建产物、依赖、隐藏工程目录等，避免列出海量无关文件）。
+const LIST_SKIP_DIRS = new Set([
+  'node_modules', 'oh_modules', 'build', '.hvigor', '.git', '.idea',
+  '.cxx', '.preview', '.clangd', 'ohosTest', 'test', '.cache',
+]);
+const LIST_MAX_FILES = 800;
 
 function parseQueryParam(url, key) {
   const q = url.indexOf('?');
@@ -39,6 +51,61 @@ function readBoardFile(filePath) {
   if (!existsSync(filePath)) return { ok: false, status: 404, output: 'file not found: ' + filePath + '\n' };
   try {
     return { ok: true, status: 200, output: readFileSync(filePath, 'utf8') };
+  } catch (e) {
+    return { ok: false, status: 500, output: 'error: ' + e.message + '\n' };
+  }
+}
+
+function normalizeDir(dirPath) {
+  // 去掉结尾的斜杠，便于与白名单根目录比对。
+  return dirPath.replace(/\/+$/, '');
+}
+
+function isAllowedListDir(dirPath) {
+  return ALLOWED_LIST_DIRS.indexOf(normalizeDir(dirPath)) >= 0;
+}
+
+// 递归列举 rootDir 下的所有文件，返回相对 rootDir 的路径（正斜杠分隔），已排序。
+function collectFiles(rootDir) {
+  const results = [];
+  const walk = (absDir, relPrefix) => {
+    if (results.length >= LIST_MAX_FILES) return;
+    let entries;
+    try {
+      entries = readdirSync(absDir);
+    } catch (e) {
+      return;
+    }
+    entries.sort();
+    for (const name of entries) {
+      if (results.length >= LIST_MAX_FILES) return;
+      const abs = absDir + '/' + name;
+      const rel = relPrefix ? relPrefix + '/' + name : name;
+      let st;
+      try {
+        st = statSync(abs);
+      } catch (e) {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (LIST_SKIP_DIRS.has(name) || name.startsWith('.')) continue;
+        walk(abs, rel);
+      } else if (st.isFile()) {
+        results.push(rel);
+      }
+    }
+  };
+  walk(normalizeDir(rootDir), '');
+  return results;
+}
+
+function listBoardFiles(dirPath) {
+  if (!dirPath) return { ok: false, status: 400, output: 'missing path query parameter\n' };
+  if (!isAllowedListDir(dirPath)) return { ok: false, status: 403, output: 'path not allowed: ' + dirPath + '\n' };
+  if (!existsSync(normalizeDir(dirPath))) return { ok: false, status: 404, output: 'dir not found: ' + dirPath + '\n' };
+  try {
+    const files = collectFiles(dirPath);
+    return { ok: true, status: 200, output: files.join('\n') + '\n' };
   } catch (e) {
     return { ok: false, status: 500, output: 'error: ' + e.message + '\n' };
   }
@@ -175,6 +242,13 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url.startsWith('/read-file')) {
     const filePath = parseQueryParam(req.url, 'path');
     const result = readBoardFile(filePath);
+    res.writeHead(result.status, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(result.output);
+    return;
+  }
+  if (req.method === 'GET' && req.url.startsWith('/list-files')) {
+    const dirPath = parseQueryParam(req.url, 'path');
+    const result = listBoardFiles(dirPath);
     res.writeHead(result.status, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(result.output);
     return;

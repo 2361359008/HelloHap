@@ -13,9 +13,32 @@ export struct WorkspaceView {
   @Prop sourceFileLoading: boolean;
   @Prop sourceFileError: string;
   @Prop sourceText: string;
+  @Prop sourceFileContent: string;
   @Prop currentExecutionLog: string;
+  // 高级关卡源码区：整个工程的文件树与选中状态。
+  @Prop advancedFiles: string[];
+  @Prop advancedFilesLoading: boolean;
+  @Prop advancedFilesError: string;
+  @Prop selectedSourceFile: string;
   onSelectSourceTab: () => void = () => {};
   onRefreshSource: () => void = () => {};
+  onSelectAdvancedFile: (path: string) => void = () => {};
+  onRefreshAdvancedFiles: () => void = () => {};
+
+  // 高级关卡源码区右侧内容文本（根据加载/错误/选中状态计算）。
+  private advancedSourceDisplay(): string {
+    if (this.sourceFileLoading) {
+      return '// 正在从板端读取文件...';
+    }
+    if (this.sourceFileError) {
+      return '// 板端文件读取失败\n// ' + this.sourceFileError +
+        '\n// 请确认 shell-bridge (:7681) 已部署 /read-file 接口后重试';
+    }
+    if (!this.selectedSourceFile) {
+      return '// 选择左侧文件查看内容';
+    }
+    return this.sourceFileContent ? this.sourceFileContent : '// （空文件）';
+  }
 
   build() {
     Column() {
@@ -169,48 +192,141 @@ export struct WorkspaceView {
 
         } else if (this.workspaceTab === 1) {
           // === TAB 1: BOARD SOURCE FILE ===
-          Column() {
-            Row() {
-              Text('/data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets')
-                .fontSize(11)
-                .fontColor('#585b70')
-                .fontFamily('monospace')
-                .layoutWeight(1)
-              if (this.selectedTaskIndex > 0) {
-                Text(this.sourceFileLoading ? '读取中...' : '刷新')
+          if (this.currentMode === 'advanced') {
+            // 高级关卡：浏览整个工程的文件树（左侧文件列表 + 右侧文件内容）。
+            Column() {
+              Row() {
+                Text(this.selectedSourceFile ? this.selectedSourceFile : '日程工程文件浏览（advanced-hapbuild/project）')
                   .fontSize(11)
-                  .fontColor(this.sourceFileLoading ? '#585b70' : '#89b4fa')
+                  .fontColor('#585b70')
+                  .fontFamily('monospace')
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text((this.advancedFilesLoading || this.sourceFileLoading) ? '读取中...' : '刷新')
+                  .fontSize(11)
+                  .fontColor((this.advancedFilesLoading || this.sourceFileLoading) ? '#585b70' : '#89b4fa')
                   .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                   .backgroundColor('#313244')
                   .borderRadius(4)
                   .onClick(() => {
-                    if (!this.sourceFileLoading) {
-                      this.onRefreshSource();
+                    if (!this.advancedFilesLoading && !this.sourceFileLoading) {
+                      this.onRefreshAdvancedFiles();
                     }
                   })
               }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+
+              Row() {
+                // 左侧：工程文件列表
+                Scroll() {
+                  Column() {
+                    if (this.advancedFilesError) {
+                      Text('文件列表读取失败\n' + this.advancedFilesError + '\n请确认 shell-bridge (:7681) 已部署 /list-files 接口')
+                        .fontSize(11)
+                        .fontColor('#f38ba8')
+                        .fontFamily('monospace')
+                        .lineHeight(16)
+                        .padding(10)
+                    } else if (this.advancedFiles.length === 0) {
+                      Text(this.advancedFilesLoading ? '正在加载文件列表...' : '暂无文件')
+                        .fontSize(11)
+                        .fontColor('#585b70')
+                        .padding(10)
+                    } else {
+                      ForEach(this.advancedFiles, (file: string) => {
+                        Text(file)
+                          .fontSize(11)
+                          .fontColor(file === this.selectedSourceFile ? '#89b4fa' : '#a6adc8')
+                          .fontFamily('monospace')
+                          .width('100%')
+                          .padding({ left: 10, right: 8, top: 7, bottom: 7 })
+                          .backgroundColor(file === this.selectedSourceFile ? '#313244' : 'transparent')
+                          .onClick(() => { this.onSelectAdvancedFile(file); })
+                      })
+                    }
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .width('100%')
+                }
+                .width('42%')
+                .height('100%')
+                .backgroundColor('#181825')
+
+                Divider()
+                  .vertical(true)
+                  .width(1)
+                  .color('#313244')
+                  .height('100%')
+
+                // 右侧：选中文件内容
+                Scroll() {
+                  Column() {
+                    Text(this.advancedSourceDisplay())
+                      .fontSize(12)
+                      .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+                      .fontFamily('monospace')
+                      .lineHeight(17)
+                      .padding(12)
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .width('100%')
+                }
+                .layoutWeight(1)
+                .height('100%')
+              }
+              .width('100%')
+              .layoutWeight(1)
             }
             .width('100%')
-            .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+            .height('100%')
+            .backgroundColor('#11111b')
 
-            Scroll() {
-              Column() {
-                Text(this.sourceText)
-                  .fontSize(13)
-                  .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+          } else {
+            Column() {
+              Row() {
+                Text('/data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets')
+                  .fontSize(11)
+                  .fontColor('#585b70')
                   .fontFamily('monospace')
-                  .lineHeight(18)
-                  .padding(16)
+                  .layoutWeight(1)
+                if (this.selectedTaskIndex > 0) {
+                  Text(this.sourceFileLoading ? '读取中...' : '刷新')
+                    .fontSize(11)
+                    .fontColor(this.sourceFileLoading ? '#585b70' : '#89b4fa')
+                    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                    .backgroundColor('#313244')
+                    .borderRadius(4)
+                    .onClick(() => {
+                      if (!this.sourceFileLoading) {
+                        this.onRefreshSource();
+                      }
+                    })
+                }
               }
-              .alignItems(HorizontalAlign.Start)
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+
+              Scroll() {
+                Column() {
+                  Text(this.sourceText)
+                    .fontSize(13)
+                    .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+                    .fontFamily('monospace')
+                    .lineHeight(18)
+                    .padding(16)
+                }
+                .alignItems(HorizontalAlign.Start)
+                .width('100%')
+              }
+              .layoutWeight(1)
               .width('100%')
             }
-            .layoutWeight(1)
             .width('100%')
+            .height('100%')
+            .backgroundColor('#11111b')
           }
-          .width('100%')
-          .height('100%')
-          .backgroundColor('#11111b')
 
         } else if (this.workspaceTab === 2) {
           // === TAB 2: OPENCLAW AGENT LOGS ===
