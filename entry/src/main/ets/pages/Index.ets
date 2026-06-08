@@ -88,6 +88,9 @@ struct Index {
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
+  // 向 OpenClaw 对话发送消息时的全屏「AI 助手正在处理」加载遮罩，与项目初始化遮罩同款。
+  // 同样在 OpenClaw 一开始返回内容（首个流式/最终/错误事件）时立即关闭。
+  @State aiProcessingOverlayVisible: boolean = false;
   // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
   // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
   private courseEpoch: number = 0;
@@ -219,9 +222,12 @@ struct Index {
   }
 
   handleChatStreamEvent(payload: Record<string, Object>) {
-    // 一旦 OpenClaw 开始返回（首个流式/最终/错误事件），立即结束「项目初始化」遮罩，不必等整轮跑完。
+    // 一旦 OpenClaw 开始返回（首个流式/最终/错误事件），立即结束加载遮罩，不必等整轮跑完。
     if (this.projectInitOverlayVisible) {
       this.projectInitOverlayVisible = false;
+    }
+    if (this.aiProcessingOverlayVisible) {
+      this.aiProcessingOverlayVisible = false;
     }
     let state = payload['state'] as string;
     let text = '';
@@ -314,6 +320,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', userMsg));
     this.chatInput = '';
     this.openClawBusy = true;
+    this.aiProcessingOverlayVisible = true;
     let epoch = this.courseEpoch;
 
     try {
@@ -344,6 +351,7 @@ struct Index {
       }, chatAgentId);
       this.openClawBusy = false;
     } catch (error) {
+      this.aiProcessingOverlayVisible = false;
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
       if (epoch !== this.courseEpoch) {
         return;
@@ -434,6 +442,7 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', label));
     this.openClawBusy = true;
+    this.aiProcessingOverlayVisible = true;
     try {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
@@ -441,6 +450,7 @@ struct Index {
       }, FREEDEV_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
+      this.aiProcessingOverlayVisible = false;
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
       if (epoch !== this.courseEpoch) {
         return;
@@ -510,6 +520,7 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
     this.openClawBusy = true;
+    this.aiProcessingOverlayVisible = true;
     try {
       await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
@@ -517,6 +528,7 @@ struct Index {
       }, TEACHING_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
+      this.aiProcessingOverlayVisible = false;
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
       if (epoch !== this.courseEpoch) {
         return;
@@ -557,6 +569,7 @@ struct Index {
     this.advancedScreen = 'menu';
     this.teachingReady = false;
     this.projectInitOverlayVisible = false;
+    this.aiProcessingOverlayVisible = false;
     this.advancedFiles = [];
     this.advancedFilesError = '';
     this.selectedSourceFile = '';
@@ -957,6 +970,43 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.openClawBusy = false;
     this.fetchBoardSourceFile();
+  }
+
+  // 全屏聚焦加载遮罩：背景压暗 + 中间聚焦卡片转圈（类似人脸识别那种聚焦弹窗）。
+  // 「项目初始化」与「AI 助手处理中」共用此样式，仅文案不同。
+  @Builder focusLoadingOverlay(title: string, subtitle: string) {
+    Column() {
+      Column() {
+        LoadingProgress()
+          .width(64)
+          .height(64)
+          .color('#89b4fa')
+
+        Text(title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#cdd6f4')
+          .margin({ top: 14 })
+
+        Text(subtitle)
+          .fontSize(12)
+          .fontColor('#a6adc8')
+          .lineHeight(18)
+          .textAlign(TextAlign.Center)
+          .margin({ top: 8 })
+      }
+      .width(320)
+      .padding({ left: 24, right: 24, top: 28, bottom: 28 })
+      .backgroundColor('#1e1e2e')
+      .borderRadius(16)
+      .border({ width: 1, color: '#45475a' })
+      .alignItems(HorizontalAlign.Center)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#A6000000')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
   }
 
   build() {
@@ -1774,39 +1824,11 @@ struct Index {
     .backgroundColor('#1e1e2e')
 
     if (this.projectInitOverlayVisible) {
-      // 全屏聚焦加载遮罩：背景压暗，中间弹出聚焦卡片放加载动画（类似人脸识别那种聚焦弹窗）。
-      Column() {
-        Column() {
-          LoadingProgress()
-            .width(64)
-            .height(64)
-            .color('#89b4fa')
+      this.focusLoadingOverlay('正在初始化项目', '还原工程模板并准备 OpenClaw，请稍候')
+    }
 
-          Text('正在初始化项目')
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#cdd6f4')
-            .margin({ top: 14 })
-
-          Text('还原工程模板并准备 OpenClaw，请稍候')
-            .fontSize(12)
-            .fontColor('#a6adc8')
-            .lineHeight(18)
-            .textAlign(TextAlign.Center)
-            .margin({ top: 8 })
-        }
-        .width(320)
-        .padding({ left: 24, right: 24, top: 28, bottom: 28 })
-        .backgroundColor('#1e1e2e')
-        .borderRadius(16)
-        .border({ width: 1, color: '#45475a' })
-        .alignItems(HorizontalAlign.Center)
-      }
-      .width('100%')
-      .height('100%')
-      .backgroundColor('#A6000000')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
+    if (this.aiProcessingOverlayVisible) {
+      this.focusLoadingOverlay('AI 助手正在处理当中', 'OpenClaw 正在生成回复，请稍候')
     }
 
     if (this.resetConfirmVisible) {
