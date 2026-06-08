@@ -94,6 +94,8 @@ struct Index {
   // 处理遮罩的两个阶段：'sending'=对话发送/网关接收中；'replying'=已被 OpenClaw 接收、正在生成回复。
   // chat.send 成功响应（onSent 回调）时从 sending 切到 replying，让加载更动态。
   @State aiProcessingPhase: string = 'sending';
+  // 诊断用：记录本轮已采集过的 chat 事件形态，避免重复刷屏；每轮结束后清空。
+  private seenChatEventShapes: Set<string> = new Set();
   // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
   // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
   private courseEpoch: number = 0;
@@ -232,6 +234,19 @@ struct Index {
     if (this.aiProcessingOverlayVisible) {
       this.aiProcessingOverlayVisible = false;
     }
+
+    // 诊断采集：把本轮里每一种「形态」（state + 顶层字段集合）首次出现的原始事件
+    // 原样写入 OpenClaw 日志，便于据此精确实现思考/工具调用/工具结果的富展示。
+    let shapeKey = String(payload['state']) + '|' + Object.keys(payload).sort().join(',');
+    if (!this.seenChatEventShapes.has(shapeKey)) {
+      this.seenChatEventShapes.add(shapeKey);
+      let dump = JSON.stringify(payload);
+      if (dump.length > 2000) {
+        dump = dump.substring(0, 2000) + '…(截断)';
+      }
+      this.currentExecutionLog += '[event] ' + dump + '\n';
+    }
+
     let state = payload['state'] as string;
     let text = '';
 
@@ -278,6 +293,7 @@ struct Index {
       this.client.completeTurn(isEmptyFinal ? fallbackFinal : text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
+      this.seenChatEventShapes.clear();
     } else if (state === 'error' || state === 'aborted') {
       let errorMsg = 'OpenClaw 调用失败/中断';
       if (payload['error']) {
@@ -288,6 +304,7 @@ struct Index {
       
       this.client.failTurn(new Error(errorMsg));
       this.openClawBusy = false;
+      this.seenChatEventShapes.clear();
     }
   }
 
