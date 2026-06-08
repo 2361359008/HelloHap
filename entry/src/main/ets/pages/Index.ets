@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
+import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -85,6 +85,7 @@ struct Index {
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
+  @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
@@ -522,7 +523,7 @@ struct Index {
     }
   }
 
-  async explainLogHapFlow(): Promise<void> {
+  async enterNextLogHapFlow(): Promise<void> {
     if (!this.teachingReady) {
       promptAction.showToast({
         message: '请先初始化讲师身份。',
@@ -537,15 +538,24 @@ struct Index {
       });
       return;
     }
+    let nextStep = this.teachingFlowStep + 1;
+    if (nextStep >= 6) {
+      promptAction.showToast({
+        message: '日志 HAP 开发教学流程已完成。',
+        duration: 1800
+      });
+      return;
+    }
     let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
-    this.chatMessages.push(new ChatMessage('user', '【教学之路·开发流程】请详解日志 HAP 的开发流程'));
+    this.teachingFlowStep = nextStep;
+    this.chatMessages.push(new ChatMessage('user', '【教学之路·开发流程】请讲解：' + getLogHapFlowChatTitle(nextStep)));
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     try {
-      await this.client.startTurn(buildLogHapFlowPrompt(), () => {
+      await this.client.startTurn(buildLogHapFlowPrompt(nextStep), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
       }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
@@ -557,7 +567,7 @@ struct Index {
         return;
       }
       let message = (error as Error).message;
-      this.currentExecutionLog += '[openclaw] teaching file-prep failed: ' + message + '\n';
+      this.currentExecutionLog += '[openclaw] teaching flow step failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
       this.openClawBusy = false;
     }
@@ -591,6 +601,7 @@ struct Index {
     this.freeDevReady = false;
     this.advancedScreen = 'menu';
     this.teachingReady = false;
+    this.teachingFlowStep = 0;
     this.projectInitOverlayVisible = false;
     this.aiProcessingOverlayVisible = false;
     this.advancedFiles = [];
@@ -1160,9 +1171,11 @@ struct Index {
                     TeachingPathView({
                       teachingReady: this.teachingReady,
                       teachingBusy: this.openClawBusy,
+                      teachingFlowStep: this.teachingFlowStep,
+                      teachingFlowTotal: 6,
                       onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
-                      onExplainWithOpenClaw: () => { this.explainLogHapFlow(); }
+                      onEnterNextFlow: () => { this.enterNextLogHapFlow(); }
                     })
                   } else if (this.advancedScreen === 'freedev') {
                     FreeDevView({

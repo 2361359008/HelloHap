@@ -19,23 +19,74 @@ export function buildTeachingIdentityPrompt(): string {
   return `你好，请用一句话确认你当前的身份和职责，然后回复「日志 HAP 课程讲师身份已就位，可以开始开发流程讲解」。在学员未明确要求前，只讲解、不改动任何工程文件。`;
 }
 
-// 开发流程：让 openclaw 讲解日志 HAP 的开发步骤（只讲解，不改任何文件）。
-export function buildLogHapFlowPrompt(): string {
+export function getLogHapFlowTitle(step: number): string {
+  switch (step) {
+    case 0:
+      return '① 初始化日志项目';
+    case 1:
+      return '② 应用身份与资源';
+    case 2:
+      return '③ 模块入口配置';
+    case 3:
+      return '④ 页面结构搭建';
+    case 4:
+      return '⑤ 日志功能实现';
+    case 5:
+      return '⑥ 构建签名与部署';
+    default:
+      return '日志 HAP 开发流程';
+  }
+}
+
+export function getLogHapFlowBody(step: number): string {
+  switch (step) {
+    case 0:
+      return '欢迎来到日志 HAP 的开发教学流程。你可以看到目前日志 HAP 已经设计好的样子，接下来我将深度介绍该 HAP 的开发流程。第一步先建立工程视角：它由 AppScope、entry、resources、signing 与构建脚本共同组成。';
+    case 1:
+      return 'AppScope/app.json5：bundleName（包名）、versionCode、versionName、label（应用名引用）。\nAppScope/resources/base/element/string.json：app_name（应用显示名）。这一步确定日志 HAP 的应用身份、名称与基础资源。';
+    case 2:
+      return 'entry/src/main/module.json5：配置 abilities（应用能力入口）与 requestPermissions（申请的系统权限）。日志 HAP 的页面启动入口、路由能力和必要权限都从这里开始对齐。';
+    case 3:
+      return 'entryability/EntryAbility.ets：应用入口 Ability（一般不动）。\npages/Index.ets：日志 HAP 的主页面，负责展示列表、输入区、状态提示等核心 UI。\nresources/base/profile/main_pages.json：路由页面清单，新增页面要在这里登记。';
+    case 4:
+      return '围绕日志条目的新增、展示、筛选和状态反馈梳理 ArkTS 状态变量、事件处理与组件布局。这里开始从"看见设计好的样子"过渡到"理解它是怎么被写出来的"。';
+    case 5:
+      return 'signing/、build-profile.json5、hvigor 脚手架和安装启动脚本负责把日志 HAP 打包成可运行应用。后续流程会继续讲清楚编译、签名、安装和启动的边界。';
+    default:
+      return '日志 HAP 开发流程已完成。';
+  }
+}
+
+export function getLogHapFlowChatTitle(step: number): string {
+  switch (step) {
+    case 0:
+      return '初始化日志项目';
+    case 1:
+      return '应用身份与资源';
+    case 2:
+      return '模块入口配置';
+    case 3:
+      return '页面结构搭建';
+    case 4:
+      return '日志功能实现';
+    case 5:
+      return '构建签名与部署';
+    default:
+      return '日志 HAP 开发流程';
+  }
+}
+
+// 开发流程：让 openclaw 分步讲解日志 HAP 的开发步骤（只讲解，不改任何文件）。
+export function buildLogHapFlowPrompt(step: number): string {
+  let title = getLogHapFlowTitle(step);
+  let body = getLogHapFlowBody(step);
   return `这是教学讲解任务，不是改代码任务。请只用中文讲解，不要创建、修改或删除任何文件，也不要运行命令。
 
 （如需对照真实工程举例，课程对象工程在 ${TEACHING_PROJECT_ROOT}；你的工作目录是你自己的 agent 工作区，不是这个工程目录。本流程只讲解、不改文件。）
 
-开场请先说：欢迎来到日志 HAP 的开发教学流程，你可以看到目前日志 HAP 已经设计好的样子，接下来我将深度介绍该 HAP 的开发流程。
+当前讲解流程：${title}
 
-讲解主题：以已经设计好的日志 HAP 为对象，按开发流程介绍它从工程初始化到构建部署的实现路径。不要再用“第一关”叙述，要用“流程第一步、第二步……”的方式推进。
+页面卡片内容：${body}
 
-请按下面的顺序，逐项用通俗语言讲清楚（每项说明：是什么 / 放在哪 / 作用 / 开发时要注意什么）：
-1. 初始化日志项目：AppScope / entry / resources / signing / 构建脚本分别承担什么职责，为什么日志 HAP 需要先建立工程骨架。
-2. 应用身份与资源：AppScope/app.json5、AppScope/resources/base/element/string.json 如何确定日志 HAP 的包名、版本、应用显示名和基础资源。
-3. 模块入口配置：entry/src/main/module.json5 如何声明 EntryAbility、页面入口、权限边界。
-4. 页面结构搭建：entry/src/main/ets/entryability/EntryAbility.ets、entry/src/main/ets/pages/Index.ets、main_pages.json 在页面启动与路由中的作用，并说明日志列表、输入区、状态提示等 UI 大致会落在哪里。
-5. 日志功能实现：用 ArkTS 状态变量、事件处理和组件组合解释日志条目的新增、展示、筛选或状态反馈，不需要写完整代码。
-6. 构建签名与部署：signing/、build-profile.json5、hvigor 脚手架、安装启动脚本如何把日志 HAP 打包成可运行应用，以及哪些文件不要随意改。
-
-最后用 3~5 句话总结"日志 HAP 的推荐开发流程"。全程只讲解，不要修改文件，不要写完整页面代码。`;
+请围绕这一个流程点讲解，不要把后续流程一次性全部展开。讲解时说明：是什么、放在哪、作用、开发时要注意什么。`;
 }
