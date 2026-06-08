@@ -49,10 +49,7 @@ sh ${ADVANCED_BUILD_SCRIPT}
 // 注意：板上 HAP「装回最原始模板」已改为板端直跑（HAP 端 HTTP /install-initial），不再让 Agent 执行安装命令，
 // 因此本提示词只做轻量身份确认，不再内嵌 sh ${ADVANCED_INSTALL_INITIAL_SCRIPT}（避免重复安装且不依赖 LLM）。
 export function buildScheduleIdentityPrompt(): string {
-  return `你好，请用一句话确认你当前的身份和任务（把日程 HAP 分身按主项目设计还原）。
-
-说明：板上的日程 HAP 已由系统在进入本关时自动还原为最原始模板，你无需执行任何命令，也不要改动任何文件。
-请只回复一句：日程 HAP 还原身份已就位，等待还原提示词。`;
+  return `你好，请用一句话确认你当前的身份。`;
 }
 
 // 提示词①：还原「类型」行的下拉菜单。
