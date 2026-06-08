@@ -699,7 +699,7 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
-    this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 还原身份'));
+    this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 自由开发身份'));
     this.openClawBusy = true;
     try {
       // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
