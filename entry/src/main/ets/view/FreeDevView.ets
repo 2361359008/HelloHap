@@ -1,12 +1,10 @@
 // 自由开发视图
 // 高级版「自由开发」专属子界面：日程 HAP 还原任务。
 // 进入后初始化 openclaw 还原（知时）身份，身份就位后用两个还原提示词驱动 OpenClaw 协同开发。
-// 与「教学之路」视图结构一致：返回 + 标题 + 任务说明卡片 + 身份状态 + 还原提示词按钮。
+// 结构：标题 + 任务说明卡片 + 身份状态 + 还原提示词按钮。（返回主页由顶部工具栏统一处理）
 
 @Component
 export struct FreeDevView {
-  // 返回高级版菜单
-  onBack: () => void = () => {};
   // 重新初始化还原身份
   onReinitIdentity: () => void = () => {};
   // 发送提示词①：还原「类型」下拉菜单
@@ -45,23 +43,6 @@ export struct FreeDevView {
   build() {
     Scroll() {
       Column() {
-        Row() {
-          Button('‹ 返回')
-            .fontSize(12)
-            .height(30)
-            .backgroundColor('#45475a')
-            .fontColor('#cdd6f4')
-            .onClick(() => { this.onBack(); })
-
-          Text('自由开发')
-            .fontSize(13)
-            .fontColor('#6c7086')
-            .margin({ left: 10 })
-        }
-        .width('100%')
-        .margin({ bottom: 10 })
-        .justifyContent(FlexAlign.Start)
-
         Text('日程 HAP 还原任务')
           .fontSize(16)
           .fontWeight(FontWeight.Bold)

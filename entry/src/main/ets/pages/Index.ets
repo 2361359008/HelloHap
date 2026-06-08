@@ -548,13 +548,19 @@ struct Index {
     }
   }
 
-  // 进入「教学之路」：先刷回初始工程，再按需初始化讲师身份。
+  // 进入「教学之路」：首次进入刷回初始工程并初始化讲师身份；
+  // 若身份已就位（例如返回主页后再次进入），直接回到教学之路页，不重复还原/初始化。
   async enterTeaching(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
         duration: 1800
       });
+      return;
+    }
+    if (this.teachingReady) {
+      this.advancedScreen = 'teaching';
+      this.workspaceTab = 0;
       return;
     }
     let epoch = this.courseEpoch;
@@ -573,13 +579,19 @@ struct Index {
     }
   }
 
-  // 进入「自由发挥」：先刷回初始工程，再初始化还原身份。
+  // 进入「自由发挥」：首次进入刷回初始工程并初始化还原身份；
+  // 若身份已就位（例如返回主页后再次进入），直接回到自由开发页，不重复还原/初始化。
   async enterFreeDev(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
         duration: 1800
       });
+      return;
+    }
+    if (this.freeDevReady) {
+      this.advancedScreen = 'freedev';
+      this.workspaceTab = 0;
       return;
     }
     let epoch = this.courseEpoch;
@@ -887,9 +899,9 @@ struct Index {
             this.tutorialStep = 0;
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
-            this.freeDevReady = false;
             this.advancedScreen = 'menu';
-            this.teachingReady = false;
+            // 返回主页不等于重置：不在此清空 freeDevReady/teachingReady，
+            // 再次进入高级课程时保留已初始化的身份，避免重复初始化（重置请走「重置开发」按钮）。
           }
         })
 
@@ -989,7 +1001,6 @@ struct Index {
                     FreeDevView({
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
-                      onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initFreeDevIdentity(); },
                       onSendRestoreType: () => {
                         this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
