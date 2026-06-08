@@ -53,6 +53,8 @@ struct Index {
   private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
   // 高级版「装回最原始基线 HAP」接口（板端直跑 install_initial_advanced.sh，不经 OpenClaw）。
   private readonly advancedInstallInitialUrl: string = 'http://127.0.0.1:7681/install-initial';
+  // 教学之路「装上完整主日程 HAP 并启动」接口（板端直跑 install_initial_teaching.sh，不经 OpenClaw）。
+  private readonly teachingInstallUrl: string = 'http://127.0.0.1:7681/install-teaching';
 
   // Step Statuses (0: pending, 1: active, 2: success)
   @State step1Status: number = 0;
@@ -1021,6 +1023,35 @@ struct Index {
     return false;
   }
 
+  // 教学之路初始状态：仅启动（aa start）完整主日程 HAP（schedule-signed.hap），不卸载/不重装。
+  // 板端直跑 install_initial_teaching.sh（/install-teaching），不经 OpenClaw；最多重试 3 次（间隔 800ms）。
+  async installTeachingBaseline(): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(this.teachingInstallUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[install-teaching] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', '板上完整主日程 HAP 已启动，可以开始本关讲解。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[install-teaching] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.chatMessages.push(new ChatMessage('assistant',
+      '主日程 HAP 启动多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
+  }
+
   // 进入「教学之路」：首次进入刷回初始工程并初始化讲师身份；
   // 若身份已就位（例如返回主页后再次进入），直接回到教学之路页，不重复还原/初始化。
   async enterTeaching(): Promise<void> {
@@ -1050,8 +1081,11 @@ struct Index {
     }
     if (!this.teachingReady) {
       this.projectInitStep = 1;
-      // 教学之路只讲解、不改板上日志 HAP，且与自由发挥的日程 HAP 是不同应用，
-      // 故此处不调用 install-initial（那是日程 HAP 基线包），保持教学流程原行为。
+      // 教学之路初始状态：仅启动完整主日程 HAP（板端直跑 aa start，不经 OpenClaw），再做轻量身份确认。
+      await this.installTeachingBaseline();
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       await this.initTeachingIdentity();
     }
   }
