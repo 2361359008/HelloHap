@@ -489,6 +489,33 @@ struct Index {
     ];
   }
 
+  // 弹出二次确认弹窗：用户点「确定」才真正重置。自由开发入口下文案用「重置开发」，其余用「重置课程」。
+  confirmResetCourse(): void {
+    if (this.courseResetting) {
+      return;
+    }
+    let isFreeDev = this.currentMode === 'advanced' && this.advancedScreen === 'freedev';
+    let actionName = isFreeDev ? '重置开发' : '重置课程';
+    let detail = isFreeDev
+      ? '将清空当前自由开发会话，并把日程工程还原到初始模板。未保存的改动会丢失，确定继续吗？'
+      : '将清空当前会话并把课程工程还原到初始模板。未保存的改动会丢失，确定继续吗？';
+    AlertDialog.show({
+      title: actionName,
+      message: detail,
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确定' + actionName,
+        fontColor: '#f38ba8',
+        action: () => { this.resetCourse(); }
+      }
+    });
+  }
+
   async resetCourse(): Promise<void> {
     if (this.courseResetting) {
       return;
@@ -905,14 +932,16 @@ struct Index {
             Blank()
 
             if (this.tutorialStep > 0 || this.currentMode === 'advanced') {
-              Button(this.courseResetting ? '正在还原项目...' : '重置课程')
+              Button(this.courseResetting
+                ? '正在还原项目...'
+                : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
                 .height(36)
                 .fontSize(14)
                 .backgroundColor('#f38ba8')
                 .fontColor('#1e1e2e')
                 .borderRadius(8)
                 .enabled(!this.courseResetting)
-                .onClick(() => { this.resetCourse(); })
+                .onClick(() => { this.confirmResetCourse(); })
             }
           }
           .width('100%')
