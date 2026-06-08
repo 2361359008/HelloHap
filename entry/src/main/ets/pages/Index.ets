@@ -233,10 +233,14 @@ struct Index {
         this.level3QaPromptInjected = true;
         this.level3QaPromptInjected = true;
       }
+      let chatAgentId = '';
+      if (this.currentMode === 'advanced') {
+        chatAgentId = this.advancedScreen === 'teaching' ? TEACHING_AGENT_ID : FREEDEV_AGENT_ID;
+      }
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, chatAgentId);
       this.openClawBusy = false;
     } catch (error) {
       let message = (error as Error).message;
@@ -1459,7 +1463,7 @@ struct Index {
               .width('100%')
               .layoutWeight(1)
 
-              if (this.tutorialStep !== 0) {
+              if (this.tutorialStep !== 0 || (this.currentMode === 'advanced' && this.advancedScreen !== 'menu')) {
                 // 2. Student question input (hidden on level selection page to avoid covering cards)
                 Column() {
                   // Input Bar at the Bottom
