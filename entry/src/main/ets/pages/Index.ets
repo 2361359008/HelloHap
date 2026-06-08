@@ -91,6 +91,9 @@ struct Index {
   // 向 OpenClaw 对话发送消息时的全屏「AI 助手正在处理」加载遮罩，与项目初始化遮罩同款。
   // 同样在 OpenClaw 一开始返回内容（首个流式/最终/错误事件）时立即关闭。
   @State aiProcessingOverlayVisible: boolean = false;
+  // 处理遮罩的两个阶段：'sending'=对话发送/网关接收中；'replying'=已被 OpenClaw 接收、正在生成回复。
+  // chat.send 成功响应（onSent 回调）时从 sending 切到 replying，让加载更动态。
+  @State aiProcessingPhase: string = 'sending';
   // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
   // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
   private courseEpoch: number = 0;
@@ -320,6 +323,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', userMsg));
     this.chatInput = '';
     this.openClawBusy = true;
+    this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     let epoch = this.courseEpoch;
 
@@ -348,7 +352,7 @@ struct Index {
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, chatAgentId);
+      }, chatAgentId, () => { this.aiProcessingPhase = 'replying'; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -442,12 +446,13 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', label));
     this.openClawBusy = true;
+    this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     try {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID);
+      }, FREEDEV_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -520,12 +525,13 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
     this.openClawBusy = true;
+    this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     try {
       await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
-      }, TEACHING_AGENT_ID);
+      }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -974,13 +980,14 @@ struct Index {
 
   // 全屏聚焦加载遮罩：背景压暗 + 中间聚焦卡片转圈（类似人脸识别那种聚焦弹窗）。
   // 「项目初始化」与「AI 助手处理中」共用此样式，仅文案不同。
-  @Builder focusLoadingOverlay(title: string, subtitle: string) {
+  // phase：0=不显示步骤点（项目初始化）；1=第一步「发送/接收」高亮；2=第二步「回复」高亮。
+  @Builder focusLoadingOverlay(title: string, subtitle: string, phase: number) {
     Column() {
       Column() {
         LoadingProgress()
           .width(64)
           .height(64)
-          .color('#89b4fa')
+          .color(phase >= 2 ? '#a6e3a1' : '#89b4fa')
 
         Text(title)
           .fontSize(16)
@@ -994,6 +1001,23 @@ struct Index {
           .lineHeight(18)
           .textAlign(TextAlign.Center)
           .margin({ top: 8 })
+
+        if (phase > 0) {
+          // 两步进度点：当前阶段高亮，已完成阶段保持高亮，未到阶段置灰。
+          Row() {
+            Circle({ width: 8, height: 8 })
+              .fill(phase >= 1 ? '#89b4fa' : '#45475a')
+            Row()
+              .width(20)
+              .height(2)
+              .backgroundColor(phase >= 2 ? '#89b4fa' : '#45475a')
+              .margin({ left: 6, right: 6 })
+            Circle({ width: 8, height: 8 })
+              .fill(phase >= 2 ? '#89b4fa' : '#45475a')
+          }
+          .margin({ top: 16 })
+          .alignItems(VerticalAlign.Center)
+        }
       }
       .width(320)
       .padding({ left: 24, right: 24, top: 28, bottom: 28 })
@@ -1824,11 +1848,15 @@ struct Index {
     .backgroundColor('#1e1e2e')
 
     if (this.projectInitOverlayVisible) {
-      this.focusLoadingOverlay('正在初始化项目', '还原工程模板并准备 OpenClaw，请稍候')
+      this.focusLoadingOverlay('正在初始化项目', '还原工程模板并准备 OpenClaw，请稍候', 0)
     }
 
     if (this.aiProcessingOverlayVisible) {
-      this.focusLoadingOverlay('AI 助手正在处理当中', 'OpenClaw 正在生成回复，请稍候')
+      if (this.aiProcessingPhase === 'replying') {
+        this.focusLoadingOverlay('OpenClaw 正在回复', 'AI 助手正在生成回复内容，请稍候', 2)
+      } else {
+        this.focusLoadingOverlay('对话已发送', 'OpenClaw 正在接收信息，请稍候', 1)
+      }
     }
 
     if (this.resetConfirmVisible) {
