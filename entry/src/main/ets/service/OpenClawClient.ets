@@ -5,7 +5,8 @@
 
 import { http, webSocket } from '@kit.NetworkKit';
 import { PendingRequest, OpenClawConnectParams, OpenClawRpcRequest,
-  OpenClawEmptyParams, OpenClawCreateSessionParams, OpenClawHistoryParams, OpenClawSendParams } from '../model/OpenClawTypes';
+  OpenClawEmptyParams, OpenClawCreateSessionParams, OpenClawHistoryParams, OpenClawSendParams,
+  OpenClawAbortParams } from '../model/OpenClawTypes';
 
 export class OpenClawClient {
   private ws: webSocket.WebSocket | null = null;
@@ -17,6 +18,9 @@ export class OpenClawClient {
   private currentAgentId: string = '';
   private agentTurnResolve: ((value: string) => void) | null = null;
   private agentTurnReject: ((err: Error) => void) | null = null;
+  // 当前在途 run 的 id。用于在「重置课程 / 进入自由发挥」时给网关发 chat.abort，
+  // 真正中止那一轮仍在板上跑的长任务（如自动编译 ~100s），而不是任由它空跑。
+  private activeRunId: string = '';
 
   // 流式 chat 事件回调，由页面注入，用于更新对话 UI 状态。
   onChatEvent: (payload: Record<string, Object>) => void = () => {};
@@ -108,6 +112,10 @@ export class OpenClawClient {
 
       this.ws.on('close', (err: Object, value: Object) => {
         console.log('WebSocket closed: ' + JSON.stringify(value));
+        // 仅当关闭的是「当前」连接才清状态：旧连接被延迟关闭时不能误清掉新连接/新一轮。
+        if (socket !== this.ws) {
+          return;
+        }
         this.ws = null;
         this.pendingRequests.forEach(req => req.reject(new Error('WebSocket disconnected')));
         this.pendingRequests = [];
@@ -120,6 +128,10 @@ export class OpenClawClient {
         if (!hasResolved) {
           hasResolved = true;
           reject(new Error('WebSocket connection error: ' + JSON.stringify(err)));
+        }
+        // 同上：旧连接的 error 不能误清当前连接状态。
+        if (socket !== this.ws) {
+          return;
         }
         this.ws = null;
         this.pendingRequests.forEach(req => req.reject(new Error('WebSocket error')));
@@ -190,6 +202,10 @@ export class OpenClawClient {
         let payload = msg['payload'] as Record<string, Object>;
 
         if (eventName === 'chat' && payload) {
+          // 记下网关分配给本轮的 runId，供 abort 使用。
+          if (payload['runId']) {
+            this.activeRunId = String(payload['runId']);
+          }
           this.onChatEvent(payload);
         }
       }
@@ -326,9 +342,19 @@ export class OpenClawClient {
         onPlaceholder();
 
         let runId = 'run-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
+        this.activeRunId = runId;
         let sendParams = new OpenClawSendParams(this.sessionKey, this.sessionId, message, runId);
 
-        await this.sendRpcRequest('chat.send', sendParams);
+        let sendRes = await this.sendRpcRequest('chat.send', sendParams);
+        // chat.send 的响应里通常带回网关实际使用的 runId，优先用它（与事件里的一致）。
+        try {
+          let sendPayload = JSON.parse(sendRes) as Record<string, Object>;
+          if (sendPayload['runId']) {
+            this.activeRunId = String(sendPayload['runId']);
+          }
+        } catch (parseErr) {
+          // 解析失败就保留本地生成的 runId。
+        }
       } catch (e) {
         this.agentTurnResolve = null;
         this.agentTurnReject = null;
@@ -339,6 +365,7 @@ export class OpenClawClient {
 
   // 由页面在收到 chat 'final' 事件时调用，解析当前对话轮次。
   completeTurn(text: string): void {
+    this.activeRunId = '';
     if (this.agentTurnResolve) {
       this.agentTurnResolve(text);
       this.agentTurnResolve = null;
@@ -348,6 +375,7 @@ export class OpenClawClient {
 
   // 由页面在收到 chat 'error'/'aborted' 事件时调用，拒绝当前对话轮次。
   failTurn(err: Error): void {
+    this.activeRunId = '';
     if (this.agentTurnReject) {
       this.agentTurnReject(err);
       this.agentTurnResolve = null;
@@ -355,15 +383,43 @@ export class OpenClawClient {
     }
   }
 
+  // 在指定连接上给网关发 chat.abort 中止当前在途 run（fire-and-forget：不进 pendingRequests、
+  // 不等响应）。用于「重置课程 / 进入自由发挥」前停掉上一轮仍在跑的长任务（如自动编译 ~100s）。
+  private abortActiveRun(targetWs: webSocket.WebSocket | null): void {
+    let runId = this.activeRunId;
+    this.activeRunId = '';
+    if (!runId || !targetWs) {
+      return;
+    }
+    try {
+      let reqId = 'abort-' + Date.now().toString();
+      let req = new OpenClawRpcRequest(reqId, 'chat.abort', new OpenClawAbortParams(runId));
+      targetWs.send(JSON.stringify(req), (err: Object) => {
+        if (err) {
+          console.error('chat.abort send failed: ' + JSON.stringify(err));
+        }
+      });
+    } catch (e) {
+      console.error('chat.abort error: ' + (e as Error).message);
+    }
+  }
+
   // 重置连接与会话状态（课程重置时调用）。
   reset(): void {
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch (e) {
-        console.error('Error closing WebSocket: ' + (e as Error).message);
-      }
-      this.ws = null;
+    // 先把旧连接从 this.ws 摘下来：之后 message 守卫会立刻丢弃它的残留事件。
+    let oldWs = this.ws;
+    this.ws = null;
+    // 在仍连着的旧连接上发 chat.abort，停掉仍在跑的上一轮长任务（否则它会在网关上空跑满 ~100s）。
+    this.abortActiveRun(oldWs);
+    // 稍等让 abort 帧发出后再关旧连接（立刻 close 可能来不及把 abort 送出去）。
+    if (oldWs) {
+      setTimeout(() => {
+        try {
+          oldWs.close();
+        } catch (e) {
+          console.error('Error closing WebSocket: ' + (e as Error).message);
+        }
+      }, 600);
     }
     this.pendingRequests.forEach(req => req.reject(new Error('Course reset')));
     this.pendingRequests = [];
