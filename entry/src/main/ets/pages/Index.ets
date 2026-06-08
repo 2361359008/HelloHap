@@ -51,6 +51,8 @@ struct Index {
     'http://127.0.0.1:7681/read-file?path=%2Fdata%2Flocal%2Ftmp%2Foh61-hapbuild%2Fproject%2Fentry%2Fsrc%2Fmain%2Fets%2Fpages%2FIndex.ets';
   // 高级版（自由发挥/教学共用的 schedulehap-lite 工程）还原接口：刷回初始备份。
   private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
+  // 高级版「装回最原始基线 HAP」接口（板端直跑 install_initial_advanced.sh，不经 OpenClaw）。
+  private readonly advancedInstallInitialUrl: string = 'http://127.0.0.1:7681/install-initial';
 
   // Step Statuses (0: pending, 1: active, 2: success)
   @State step1Status: number = 0;
@@ -989,6 +991,36 @@ struct Index {
     return false;
   }
 
+  // 把板上已安装的日程 HAP 还原成最原始基线包：板端直跑 install_initial_advanced.sh
+  // （/install-initial → 卸载+安装+启动基线签名包，不编译不签名），不再经 OpenClaw 发提示词，秒级完成。
+  // 与 restoreAdvancedProject 同样最多重试 3 次（间隔 800ms），失败给明确反馈但不阻断后续身份确认。
+  async installInitialAdvanced(): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(this.advancedInstallInitialUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[install-initial] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', '板上日程 HAP 已还原为最原始模板。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[install-initial] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.chatMessages.push(new ChatMessage('assistant',
+      '板上日程 HAP 初始化安装多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
+  }
+
   // 进入「教学之路」：首次进入刷回初始工程并初始化讲师身份；
   // 若身份已就位（例如返回主页后再次进入），直接回到教学之路页，不重复还原/初始化。
   async enterTeaching(): Promise<void> {
@@ -1018,6 +1050,8 @@ struct Index {
     }
     if (!this.teachingReady) {
       this.projectInitStep = 1;
+      // 教学之路只讲解、不改板上日志 HAP，且与自由发挥的日程 HAP 是不同应用，
+      // 故此处不调用 install-initial（那是日程 HAP 基线包），保持教学流程原行为。
       await this.initTeachingIdentity();
     }
   }
@@ -1051,6 +1085,11 @@ struct Index {
     }
     if (!this.freeDevReady) {
       this.projectInitStep = 1;
+      // C2：板上 HAP 还原改为板端直跑（不再经 OpenClaw 提示词），秒级完成。
+      await this.installInitialAdvanced();
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       await this.initFreeDevIdentity();
     }
   }
@@ -2201,8 +2240,8 @@ struct Index {
 
     if (this.projectInitOverlayVisible) {
       if (this.projectInitStep >= 1) {
-        // 第二步：经 OpenClaw 初始化身份并把板上 HAP 装回最原始模板。
-        this.focusLoadingOverlay('正在初始化项目', '② 正在初始化身份并还原板上 HAP，请稍候', 2)
+        // 第二步：还原板上 HAP（自由发挥经板端直跑）并经 OpenClaw 初始化身份。
+        this.focusLoadingOverlay('正在初始化项目', '② 正在初始化身份，请稍候', 2)
       } else {
         // 第一步：HTTP 直连板端还原工程源码模板。
         this.focusLoadingOverlay('正在初始化项目', '① 正在还原日程工程模板，请稍候', 1)
