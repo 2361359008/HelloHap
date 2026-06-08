@@ -35,6 +35,7 @@ struct Index {
   @State sourceFileLoading: boolean = false;
   @State sourceFileError: string = '';
   @State courseResetting: boolean = false;
+  @State resetConfirmVisible: boolean = false;
   @State courseResetNoticeVisible: boolean = false;
   @State courseResetNoticeSuccess: boolean = true;
   @State courseResetNoticeTitle: string = '';
@@ -489,31 +490,13 @@ struct Index {
     ];
   }
 
-  // 弹出二次确认弹窗：用户点「确定」才真正重置。自由开发入口下文案用「重置开发」，其余用「重置课程」。
+  // 弹出二次确认弹窗（自定义暗色样式，见 build 末尾的 resetConfirmVisible 遮罩）。
+  // 用户点「确定」才真正重置。自由开发入口下文案用「重置开发」，其余用「重置课程」。
   confirmResetCourse(): void {
     if (this.courseResetting) {
       return;
     }
-    let isFreeDev = this.currentMode === 'advanced' && this.advancedScreen === 'freedev';
-    let actionName = isFreeDev ? '重置开发' : '重置课程';
-    let detail = isFreeDev
-      ? '将清空当前自由开发会话，并把日程工程还原到初始模板。未保存的改动会丢失，确定继续吗？'
-      : '将清空当前会话并把课程工程还原到初始模板。未保存的改动会丢失，确定继续吗？';
-    AlertDialog.show({
-      title: actionName,
-      message: detail,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: '取消',
-        action: () => {}
-      },
-      secondaryButton: {
-        value: '确定' + actionName,
-        fontColor: '#f38ba8',
-        action: () => { this.resetCourse(); }
-      }
-    });
+    this.resetConfirmVisible = true;
   }
 
   async resetCourse(): Promise<void> {
@@ -931,7 +914,7 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0 || this.currentMode === 'advanced') {
+            if (this.tutorialStep > 0 || (this.currentMode === 'advanced' && this.advancedScreen !== 'menu')) {
               Button(this.courseResetting
                 ? '正在还原项目...'
                 : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
@@ -1724,6 +1707,64 @@ struct Index {
         .borderRadius(16)
         .border({ width: 1, color: '#45475a' })
         .alignItems(HorizontalAlign.Center)
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#A6000000')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+
+    if (this.resetConfirmVisible) {
+      // 自定义暗色二次确认弹窗，风格对齐整个 HAP（深色卡片 + 粉色强调）。
+      Column() {
+        Column() {
+          Text(this.advancedScreen === 'freedev' ? '重置开发' : '重置课程')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#cdd6f4')
+
+          Text(this.advancedScreen === 'freedev'
+            ? '将清空当前自由开发会话，并把日程工程还原到初始模板。未保存的改动会丢失，确定继续吗？'
+            : '将清空当前会话并把课程工程还原到初始模板。未保存的改动会丢失，确定继续吗？')
+            .fontSize(14)
+            .fontColor('#a6adc8')
+            .lineHeight(22)
+            .margin({ top: 14 })
+
+          Row() {
+            Button('取消')
+              .layoutWeight(1)
+              .height(42)
+              .fontSize(15)
+              .fontColor('#cdd6f4')
+              .backgroundColor('#313244')
+              .borderRadius(10)
+              .onClick(() => { this.resetConfirmVisible = false; })
+
+            Button(this.advancedScreen === 'freedev' ? '确定重置开发' : '确定重置课程')
+              .layoutWeight(1)
+              .height(42)
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#1e1e2e')
+              .backgroundColor('#f38ba8')
+              .borderRadius(10)
+              .margin({ left: 12 })
+              .onClick(() => {
+                this.resetConfirmVisible = false;
+                this.resetCourse();
+              })
+          }
+          .width('100%')
+          .margin({ top: 24 })
+        }
+        .width(340)
+        .padding({ left: 24, right: 24, top: 24, bottom: 24 })
+        .backgroundColor('#252538')
+        .borderRadius(16)
+        .border({ width: 1, color: '#45475a' })
+        .alignItems(HorizontalAlign.Start)
       }
       .width('100%')
       .height('100%')
