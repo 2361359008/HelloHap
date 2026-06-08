@@ -1023,7 +1023,7 @@ struct Index {
     return false;
   }
 
-  // 教学之路初始状态：把完整主日程 HAP（schedule-signed.hap）装上板并启动。
+  // 教学之路初始状态：仅启动（aa start）完整主日程 HAP（schedule-signed.hap），不卸载/不重装。
   // 板端直跑 install_initial_teaching.sh（/install-teaching），不经 OpenClaw；最多重试 3 次（间隔 800ms）。
   async installTeachingBaseline(): Promise<boolean> {
     const maxAttempts = 3;
@@ -1033,7 +1033,7 @@ struct Index {
         let out = await this.client.requestText(this.teachingInstallUrl, http.RequestMethod.GET);
         this.currentExecutionLog += '[install-teaching] (try ' + attempt.toString() + ') ' + out + '\n';
         if (out.indexOf('ok:') >= 0) {
-          this.chatMessages.push(new ChatMessage('assistant', '板上已装好完整主日程 HAP 并启动，可以开始本关讲解。'));
+          this.chatMessages.push(new ChatMessage('assistant', '板上完整主日程 HAP 已启动，可以开始本关讲解。'));
           this.chatMessages = [...this.chatMessages];
           return true;
         }
@@ -1047,7 +1047,7 @@ struct Index {
       }
     }
     this.chatMessages.push(new ChatMessage('assistant',
-      '主日程 HAP 安装/启动多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
+      '主日程 HAP 启动多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
     this.chatMessages = [...this.chatMessages];
     return false;
   }
@@ -1081,7 +1081,7 @@ struct Index {
     }
     if (!this.teachingReady) {
       this.projectInitStep = 1;
-      // 教学之路初始状态：把完整主日程 HAP 装上板并启动（板端直跑，不经 OpenClaw），再做轻量身份确认。
+      // 教学之路初始状态：仅启动完整主日程 HAP（板端直跑 aa start，不经 OpenClaw），再做轻量身份确认。
       await this.installTeachingBaseline();
       if (epoch !== this.courseEpoch) {
         return;
