@@ -241,6 +241,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', userMsg));
     this.chatInput = '';
     this.openClawBusy = true;
+    let epoch = this.courseEpoch;
 
     try {
       let sendMsg = userMsg;
@@ -270,6 +271,10 @@ struct Index {
       }, chatAgentId);
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] chat failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
@@ -324,6 +329,11 @@ struct Index {
       this.freeDevReady = true;
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败（代际已变）：clearCourseState 已把对话刷新干净，
+      // 这里不要再往里补「初始化失败：Course reset」残留文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] free-dev identity init failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 身份初始化失败：' + message));
@@ -347,6 +357,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', label));
     this.openClawBusy = true;
@@ -357,6 +368,10 @@ struct Index {
       }, FREEDEV_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] free-dev prompt failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
@@ -390,6 +405,10 @@ struct Index {
       this.teachingReady = true;
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] teaching identity init failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 讲师身份初始化失败：' + message));
@@ -413,6 +432,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
@@ -424,6 +444,10 @@ struct Index {
       }, TEACHING_AGENT_ID);
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] teaching file-prep failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
@@ -766,6 +790,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.tutorialStep = 2;
     this.currentProgress = 0;
     this.currentExecutionLog = '[info] OpenClaw Agent gateway handoff starting...\n';
@@ -794,6 +819,10 @@ struct Index {
       this.currentExecutionLog += '[openclaw] real agent turn accepted.\n';
       this.currentExecutionLog += '[openclaw] reply: ' + reply + '\n';
     } catch (error) {
+      // 因课程重置导致的失败：对话与进度已刷新，不再补残留失败文案/不回退步骤。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] real gateway call failed: ' + message + '\n';
       this.currentExecutionLog += '[openclaw] stopped: OpenClaw call is required.\n';
@@ -802,6 +831,10 @@ struct Index {
       this.currentProgress = 0;
       this.openClawBusy = false;
       this.tutorialStep = 1; // Back to step 1
+      return;
+    }
+    // 成功返回后若期间已被重置，放弃推进关卡进度（避免在新课程态上误推进）。
+    if (epoch !== this.courseEpoch) {
       return;
     }
 
