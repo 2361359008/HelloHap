@@ -294,6 +294,10 @@ struct Index {
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
       this.seenChatEventShapes.clear();
+
+      // 一轮结束后异步拉取历史，把本轮「思考→工具调用→工具返回→最终回复」完整过程
+      // 渲染到对话区（原生流只给最终文本，过程需走 chat.history）。失败/被重置则静默保留纯文本。
+      this.enrichTurnFromHistory(this.courseEpoch);
     } else if (state === 'error' || state === 'aborted') {
       let errorMsg = 'OpenClaw 调用失败/中断';
       if (payload['error']) {
@@ -316,6 +320,177 @@ struct Index {
       return true;
     }
     return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
+  }
+
+  // 一轮结束后拉取会话历史，把本轮（历史里最后一条 user 之后的所有消息）解析成
+  // 「思考 / 工具调用 / 工具返回 / 文本」分段，替换对话区里本轮的纯文本助手气泡，
+  // 呈现与 WebUI 类似的完整过程。任何异常或课程被重置都静默放弃，保留已显示的纯文本。
+  private async enrichTurnFromHistory(epoch: number): Promise<void> {
+    try {
+      let raw = await this.client.fetchHistoryRaw();
+      if (epoch !== this.courseEpoch || !raw) {
+        return;
+      }
+      let payload = JSON.parse(raw) as Record<string, Object>;
+      let messages = this.extractHistoryMessages(payload);
+      // 诊断：紧凑记录历史响应结构，便于核对/排错（截图即可）。
+      this.currentExecutionLog += '[history] msgs=' + messages.length.toString()
+        + ' keys=' + Object.keys(payload).sort().join(',') + '\n';
+      if (messages.length === 0) {
+        return;
+      }
+      let segments = this.buildTurnSegments(messages);
+      if (segments.length === 0) {
+        return;
+      }
+      let lastUserIdx = -1;
+      for (let i = this.chatMessages.length - 1; i >= 0; i--) {
+        if (this.chatMessages[i].sender === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      let head: Array<ChatMessage> = lastUserIdx >= 0
+        ? this.chatMessages.slice(0, lastUserIdx + 1)
+        : this.chatMessages.slice(0, this.chatMessages.length);
+      this.chatMessages = head.concat(segments);
+    } catch (e) {
+      // 静默：富展示是增强项，失败不影响已显示的最终回复。
+    }
+  }
+
+  // 从 chat.history 响应里取出消息数组，兼容多种封装：
+  // 顶层 messages/items/events/history/log/entries 任一为数组即可；
+  // 数组元素兼容 {type:'message', message:{role,content,...}} 与直接 {role,content,...} 两种。
+  private extractHistoryMessages(payload: Record<string, Object>): Array<Record<string, Object>> {
+    let arr: Array<Object> | null = null;
+    let candidates: Array<string> = ['messages', 'items', 'events', 'history', 'log', 'entries'];
+    for (let i = 0; i < candidates.length; i++) {
+      let v = payload[candidates[i]];
+      if (Array.isArray(v)) {
+        arr = v as Array<Object>;
+        break;
+      }
+    }
+    let out: Array<Record<string, Object>> = [];
+    if (!arr) {
+      return out;
+    }
+    for (let i = 0; i < arr.length; i++) {
+      let rec = arr[i] as Record<string, Object>;
+      if (!rec) {
+        continue;
+      }
+      if (rec['message'] && typeof rec['message'] === 'object') {
+        out.push(rec['message'] as Record<string, Object>);
+      } else if (rec['role']) {
+        out.push(rec);
+      }
+    }
+    return out;
+  }
+
+  // 取历史里最后一条 user 之后的消息，逐条按内容块拆成富展示分段。
+  private buildTurnSegments(messages: Array<Record<string, Object>>): Array<ChatMessage> {
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (String(messages[i]['role']) === 'user') {
+        lastUser = i;
+        break;
+      }
+    }
+    let start = lastUser >= 0 ? lastUser + 1 : 0;
+    let segs: Array<ChatMessage> = [];
+    for (let i = start; i < messages.length; i++) {
+      let m = messages[i];
+      let role = String(m['role']);
+      if (role === 'toolResult') {
+        let toolName = m['toolName'] ? String(m['toolName']) : 'tool';
+        let isErr = (m['isError'] ? String(m['isError']) === 'true' : false);
+        let resText = this.extractBlockText(m['content']);
+        segs.push(new ChatMessage('assistant', resText, 'toolResult', toolName, '', isErr));
+      } else if (role === 'assistant') {
+        let content = m['content'];
+        if (Array.isArray(content)) {
+          let blocks = content as Array<Object>;
+          for (let j = 0; j < blocks.length; j++) {
+            let b = blocks[j] as Record<string, Object>;
+            if (!b) {
+              continue;
+            }
+            let bt = String(b['type']);
+            if (bt === 'thinking') {
+              let th = b['thinking'] ? String(b['thinking']) : '';
+              if (th.trim() !== '') {
+                segs.push(new ChatMessage('assistant', th, 'thinking'));
+              }
+            } else if (bt === 'text') {
+              let tx = b['text'] ? String(b['text']) : '';
+              if (tx.trim() !== '') {
+                segs.push(new ChatMessage('assistant', tx, 'text'));
+              }
+            } else if (bt === 'toolCall') {
+              let name = b['name'] ? String(b['name']) : 'tool';
+              let argSummary = this.summarizeToolArgs(b['arguments']);
+              segs.push(new ChatMessage('assistant', '', 'toolCall', name, argSummary));
+            }
+          }
+        } else {
+          let tx = this.extractBlockText(content);
+          if (tx.trim() !== '') {
+            segs.push(new ChatMessage('assistant', tx, 'text'));
+          }
+        }
+      }
+    }
+    return segs;
+  }
+
+  // 从内容数组/字符串里拼出纯文本（用于 user/toolResult 的 text 块）。
+  private extractBlockText(content: Object | undefined): string {
+    if (!content) {
+      return '';
+    }
+    if (typeof content === 'string') {
+      return content as string;
+    }
+    if (Array.isArray(content)) {
+      let arr = content as Array<Object>;
+      let parts: Array<string> = [];
+      for (let i = 0; i < arr.length; i++) {
+        let b = arr[i] as Record<string, Object>;
+        if (b && b['type'] === 'text' && b['text']) {
+          parts.push(String(b['text']));
+        } else if (typeof arr[i] === 'string') {
+          parts.push(arr[i] as string);
+        }
+      }
+      return parts.join('');
+    }
+    return '';
+  }
+
+  // 把工具参数压成一行摘要：exec 显示命令、read 显示路径(+offset/limit)，其它回退紧凑 JSON。
+  private summarizeToolArgs(args: Object | undefined): string {
+    if (!args || typeof args !== 'object') {
+      return '';
+    }
+    let a = args as Record<string, Object>;
+    if (a['command']) {
+      return String(a['command']);
+    }
+    if (a['path']) {
+      let p = String(a['path']);
+      if (a['offset'] && a['limit']) {
+        return p + '  (offset ' + String(a['offset']) + ', limit ' + String(a['limit']) + ')';
+      }
+      return p;
+    }
+    let s = JSON.stringify(a);
+    if (s.length > 200) {
+      s = s.substring(0, 200) + '…';
+    }
+    return s;
   }
 
   async sendChatMessage() {
