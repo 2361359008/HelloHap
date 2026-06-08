@@ -549,6 +549,7 @@ struct Index {
       return;
     }
     let epoch = this.courseEpoch;
+    let previousStep = this.teachingFlowStep;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.teachingFlowStep = nextStep;
@@ -571,6 +572,9 @@ struct Index {
         return;
       }
       let message = (error as Error).message;
+      this.teachingFlowStep = previousStep;
+      this.teachingFlowTitle = getLogHapFlowTitle(previousStep);
+      this.teachingFlowBody = getLogHapFlowBody(previousStep);
       this.currentExecutionLog += '[openclaw] teaching flow step failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
       this.openClawBusy = false;
@@ -1177,10 +1181,10 @@ struct Index {
                     TeachingPathView({
                       teachingReady: this.teachingReady,
                       teachingBusy: this.openClawBusy,
-                      teachingFlowStep: this.teachingFlowStep,
+                      teachingFlowStep: $teachingFlowStep,
                       teachingFlowTotal: 6,
-                      teachingFlowTitle: this.teachingFlowTitle,
-                      teachingFlowBody: this.teachingFlowBody,
+                      teachingFlowTitle: $teachingFlowTitle,
+                      teachingFlowBody: $teachingFlowBody,
                       onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
                       onEnterNextFlow: () => { this.enterNextLogHapFlow(); }

@@ -16,12 +16,12 @@ export struct TeachingPathView {
   // openclaw 是否正在处理（处理中禁用按钮）
   @Prop teachingBusy: boolean = false;
   // 当前展示的流程步骤，从 0 开始
-  @Prop teachingFlowStep: number = 0;
+  @Link teachingFlowStep: number;
   // 流程总数
   @Prop teachingFlowTotal: number = 6;
   // 当前卡片标题和正文由父页面状态直接传入，确保切换流程时卡片同步刷新。
-  @Prop teachingFlowTitle: string = '① 初始化日志项目';
-  @Prop teachingFlowBody: string = '';
+  @Link teachingFlowTitle: string;
+  @Link teachingFlowBody: string;
 
   @Builder
   InfoCard(title: string, body: string) {
@@ -84,7 +84,7 @@ export struct TeachingPathView {
         this.InfoCard(this.teachingFlowTitle, this.teachingFlowBody)
 
         if (this.teachingReady) {
-          Text(this.teachingFlowStep < this.teachingFlowTotal - 1 ? '讲师身份已就位，可点击下方进入下一流程。' : '日志 HAP 开发教学流程已到最后一步。')
+          Text(this.teachingFlowStep < this.teachingFlowTotal - 1 ? '当前流程：' + this.teachingFlowTitle + '，可点击下方进入下一流程。' : '当前流程：' + this.teachingFlowTitle + '，日志 HAP 开发教学流程已到最后一步。')
             .fontSize(11)
             .fontColor('#a6e3a1')
             .margin({ top: 2, bottom: 8 })
