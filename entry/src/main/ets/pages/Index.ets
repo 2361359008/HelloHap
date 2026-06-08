@@ -81,6 +81,9 @@ struct Index {
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
+  // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
+  // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
+  private courseEpoch: number = 0;
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -286,6 +289,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
@@ -296,6 +300,10 @@ struct Index {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
         this.chatMessages = [...this.chatMessages];
       }, FREEDEV_AGENT_ID);
+      // 被重置过就不再标记就绪（旧身份初始化作废），避免误置 freeDevReady 让旧会话被当成已就绪。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       this.freeDevReady = true;
       this.openClawBusy = false;
     } catch (error) {
@@ -347,6 +355,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
@@ -357,6 +366,10 @@ struct Index {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
         this.chatMessages = [...this.chatMessages];
       }, TEACHING_AGENT_ID);
+      // 被重置过就不再标记就绪（旧身份初始化作废）。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       this.teachingReady = true;
       this.openClawBusy = false;
     } catch (error) {
@@ -402,6 +415,9 @@ struct Index {
   }
 
   clearCourseState(): void {
+    // 页面层代际自增：在途的 enterFreeDev/enterTeaching/init* 在其 await 返回后会发现
+    // 代际已变而放弃继续启动旧流程（如已被重置后才返回的 restoreAdvancedProject）。
+    this.courseEpoch++;
     this.client.reset();
 
     this.selectedTaskIndex = 0;
@@ -490,12 +506,17 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.advancedScreen = 'teaching';
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
     await this.restoreAdvancedProject();
+    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
     if (!this.teachingReady) {
       await this.initTeachingIdentity();
     }
@@ -510,12 +531,17 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
     await this.restoreAdvancedProject();
+    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
     if (!this.freeDevReady) {
       await this.initFreeDevIdentity();
     }

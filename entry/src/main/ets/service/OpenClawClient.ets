@@ -21,6 +21,17 @@ export class OpenClawClient {
   // 当前在途 run 的 id。用于在「重置课程 / 进入自由发挥」时给网关发 chat.abort，
   // 真正中止那一轮仍在板上跑的长任务（如自动编译 ~100s），而不是任由它空跑。
   private activeRunId: string = '';
+  // 重置代际。reset() 自增；startTurn/ensureSession/sendRpcRequest 在每个 await 后校验，
+  // 一旦代际变化（说明中途被重置）立刻抛 Course reset，绝不再用旧 session 发旧提示词，
+  // 避免旧 async 流程在 reset 之后继续建会话 / 执行旧提示词（覆盖板上 HAP）。
+  private resetEpoch: number = 0;
+
+  // 校验代际：与当前不一致说明已被重置，抛错让在途 async 自杀。
+  private ensureEpoch(epoch: number): void {
+    if (epoch !== this.resetEpoch) {
+      throw new Error('Course reset');
+    }
+  }
 
   // 流式 chat 事件回调，由页面注入，用于更新对话 UI 状态。
   onChatEvent: (payload: Record<string, Object>) => void = () => {};
@@ -263,11 +274,24 @@ export class OpenClawClient {
     }
   }
 
-  sendRpcRequest(method: string, params: Object): Promise<string> {
+  // epoch>=0 时启用代际校验：每个 await 后若代际已变（被重置）立刻拒绝，绝不发送旧请求。
+  sendRpcRequest(method: string, params: Object, epoch: number = -1): Promise<string> {
     return new Promise(async (resolve, reject) => {
       try {
+        if (epoch >= 0 && epoch !== this.resetEpoch) {
+          reject(new Error('Course reset'));
+          return;
+        }
         let token = await this.getToken();
+        if (epoch >= 0 && epoch !== this.resetEpoch) {
+          reject(new Error('Course reset'));
+          return;
+        }
         await this.setupWebSocket(token);
+        if (epoch >= 0 && epoch !== this.resetEpoch) {
+          reject(new Error('Course reset'));
+          return;
+        }
 
         let reqId = 'req-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
         let request = new OpenClawRpcRequest(reqId, method, params);
@@ -290,14 +314,16 @@ export class OpenClawClient {
 
   // 确保已有会话：必要时创建 session，并刷新 sessionId。
   // agentId 用于把会话绑定到指定 agent（''=默认 main）；切换 agent 时重建会话。
-  private async ensureSession(agentId: string): Promise<void> {
+  private async ensureSession(agentId: string, epoch: number): Promise<void> {
+    this.ensureEpoch(epoch);
     if (agentId !== this.currentAgentId) {
       this.currentAgentId = agentId;
       this.sessionKey = '';
       this.sessionId = '';
     }
     if (!this.sessionKey) {
-      let createRes = await this.sendRpcRequest('sessions.create', new OpenClawCreateSessionParams(agentId));
+      let createRes = await this.sendRpcRequest('sessions.create', new OpenClawCreateSessionParams(agentId), epoch);
+      this.ensureEpoch(epoch);
       let createPayload = JSON.parse(createRes) as Record<string, Object>;
       let sKey = '';
       if (createPayload['key']) {
@@ -313,7 +339,8 @@ export class OpenClawClient {
       this.sessionKey = sKey;
     }
 
-    let histRes = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.sessionKey));
+    let histRes = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.sessionKey), epoch);
+    this.ensureEpoch(epoch);
     let histPayload = JSON.parse(histRes) as Record<string, Object>;
     let sessId = '';
     if (histPayload['sessionId']) {
@@ -330,22 +357,30 @@ export class OpenClawClient {
   // 发起一轮对话/任务：连接 -> 建会话 -> 触发占位回调 -> 发送消息。
   // 返回的 Promise 在收到 chat 'final' 事件后由 completeTurn 解析。
   startTurn(message: string, onPlaceholder: () => void, agentId: string = ''): Promise<string> {
+    // 同步捕获发起时的代际：后续任一 await 之后若被重置，立刻终止，不再用旧 session 发旧提示词。
+    let epoch = this.resetEpoch;
     return new Promise(async (resolve, reject) => {
       this.agentTurnResolve = resolve;
       this.agentTurnReject = reject;
 
       try {
         let token = await this.getToken();
+        this.ensureEpoch(epoch);
         await this.setupWebSocket(token);
-        await this.ensureSession(agentId);
+        this.ensureEpoch(epoch);
+        await this.ensureSession(agentId, epoch);
+        this.ensureEpoch(epoch);
 
         onPlaceholder();
 
         let runId = 'run-' + Date.now().toString() + '-' + Math.floor(Math.random() * 1000).toString();
+        // 发送旧提示词前的最后一道闸：被重置则绝不发出。
+        this.ensureEpoch(epoch);
         this.activeRunId = runId;
         let sendParams = new OpenClawSendParams(this.sessionKey, this.sessionId, message, runId);
 
-        let sendRes = await this.sendRpcRequest('chat.send', sendParams);
+        let sendRes = await this.sendRpcRequest('chat.send', sendParams, epoch);
+        this.ensureEpoch(epoch);
         // chat.send 的响应里通常带回网关实际使用的 runId，优先用它（与事件里的一致）。
         try {
           let sendPayload = JSON.parse(sendRes) as Record<string, Object>;
@@ -356,8 +391,11 @@ export class OpenClawClient {
           // 解析失败就保留本地生成的 runId。
         }
       } catch (e) {
-        this.agentTurnResolve = null;
-        this.agentTurnReject = null;
+        // 仅当仍是当前代际才清共享回调：避免清掉 reset 之后新一轮已注册的回调。
+        if (epoch === this.resetEpoch) {
+          this.agentTurnResolve = null;
+          this.agentTurnReject = null;
+        }
         reject(e as Error);
       }
     });
@@ -387,13 +425,15 @@ export class OpenClawClient {
   // 不等响应）。用于「重置课程 / 进入自由发挥」前停掉上一轮仍在跑的长任务（如自动编译 ~100s）。
   private abortActiveRun(targetWs: webSocket.WebSocket | null): void {
     let runId = this.activeRunId;
+    // 网关要求 chat.abort 必须带 sessionKey；reset() 在清空 sessionKey 之前调用本方法，故此处仍有效。
+    let sessionKey = this.sessionKey;
     this.activeRunId = '';
-    if (!runId || !targetWs) {
+    if (!runId || !sessionKey || !targetWs) {
       return;
     }
     try {
       let reqId = 'abort-' + Date.now().toString();
-      let req = new OpenClawRpcRequest(reqId, 'chat.abort', new OpenClawAbortParams(runId));
+      let req = new OpenClawRpcRequest(reqId, 'chat.abort', new OpenClawAbortParams(sessionKey, runId));
       targetWs.send(JSON.stringify(req), (err: Object) => {
         if (err) {
           console.error('chat.abort send failed: ' + JSON.stringify(err));
@@ -406,6 +446,9 @@ export class OpenClawClient {
 
   // 重置连接与会话状态（课程重置时调用）。
   reset(): void {
+    // 代际自增：任何在途 startTurn/ensureSession/sendRpcRequest 在下一个 await 后都会因
+    // 代际不符而抛 Course reset，绝不再用旧 session 建会话 / 发旧提示词。
+    this.resetEpoch++;
     // 先把旧连接从 this.ws 摘下来：之后 message 守卫会立刻丢弃它的残留事件。
     let oldWs = this.ws;
     this.ws = null;
