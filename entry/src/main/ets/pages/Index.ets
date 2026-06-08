@@ -174,19 +174,26 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }
     } else if (state === 'final') {
-      if (this.chatMessages.length > 0) {
+      // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
+      // 若已有实质过程文案则保留并补一句「已完成」；否则给一句明确的完成提示。
+      let trimmedFinal = text.trim();
+      let isEmptyFinal = (trimmedFinal === '' || trimmedFinal === 'NO_REPLY');
+      let fallbackFinal = '已执行完成，但本轮未返回文字总结。可在「工作区」查看改动的代码与编译/安装结果。';
+      if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
         let lastMsg = this.chatMessages[this.chatMessages.length - 1];
-        if (lastMsg.sender === 'assistant') {
+        if (!isEmptyFinal) {
           lastMsg.text = text;
+        } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
+          lastMsg.text = fallbackFinal;
         } else {
-          this.chatMessages.push(new ChatMessage('assistant', text));
+          lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
         }
       } else {
-        this.chatMessages.push(new ChatMessage('assistant', text));
+        this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
       }
       this.chatMessages = [...this.chatMessages];
-      
-      this.client.completeTurn(text);
+
+      this.client.completeTurn(isEmptyFinal ? fallbackFinal : text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
     } else if (state === 'error' || state === 'aborted') {
@@ -200,6 +207,16 @@ struct Index {
       this.client.failTurn(new Error(errorMsg));
       this.openClawBusy = false;
     }
+  }
+
+  // 判断某条助手气泡是否只是占位文案（「OpenClaw 正在…」「正在还原…」）或空，
+  // 用于 final 兜底：最终回复为空/NO_REPLY 时决定是补完成提示还是保留已有过程文案。
+  private isPlaceholderOrEmpty(s: string): boolean {
+    let t = s.trim();
+    if (t === '') {
+      return true;
+    }
+    return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
   }
 
   async sendChatMessage() {
