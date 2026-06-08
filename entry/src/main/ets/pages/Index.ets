@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
+import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowBody, getLogHapFlowChatTitle, getLogHapFlowTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -86,6 +86,8 @@ struct Index {
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
+  @State teachingFlowTitle: string = '① 初始化日志项目';
+  @State teachingFlowBody: string = '欢迎来到日志 HAP 的开发教学流程。你可以看到目前日志 HAP 已经设计好的样子，接下来我将深度介绍该 HAP 的开发流程。第一步先建立工程视角：它由 AppScope、entry、resources、signing 与构建脚本共同组成。';
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
@@ -550,6 +552,8 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.teachingFlowStep = nextStep;
+    this.teachingFlowTitle = getLogHapFlowTitle(nextStep);
+    this.teachingFlowBody = getLogHapFlowBody(nextStep);
     this.chatMessages.push(new ChatMessage('user', '【教学之路·开发流程】请讲解：' + getLogHapFlowChatTitle(nextStep)));
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
@@ -602,6 +606,8 @@ struct Index {
     this.advancedScreen = 'menu';
     this.teachingReady = false;
     this.teachingFlowStep = 0;
+    this.teachingFlowTitle = getLogHapFlowTitle(0);
+    this.teachingFlowBody = getLogHapFlowBody(0);
     this.projectInitOverlayVisible = false;
     this.aiProcessingOverlayVisible = false;
     this.advancedFiles = [];
@@ -1173,6 +1179,8 @@ struct Index {
                       teachingBusy: this.openClawBusy,
                       teachingFlowStep: this.teachingFlowStep,
                       teachingFlowTotal: 6,
+                      teachingFlowTitle: this.teachingFlowTitle,
+                      teachingFlowBody: this.teachingFlowBody,
                       onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
                       onEnterNextFlow: () => { this.enterNextLogHapFlow(); }

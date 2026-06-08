@@ -3,8 +3,6 @@
 // 应用内每次只展示一个流程卡片 + 一个「进入下一流程」按钮（点击后由父组件调用 openclaw）。
 // 首步先以已经设计好的日志 HAP 为入口，按流程介绍后续开发步骤。
 
-import { getLogHapFlowBody, getLogHapFlowTitle } from '../model/TeachingContent';
-
 @Component
 export struct TeachingPathView {
   // 返回高级版菜单
@@ -21,6 +19,9 @@ export struct TeachingPathView {
   @Prop teachingFlowStep: number = 0;
   // 流程总数
   @Prop teachingFlowTotal: number = 6;
+  // 当前卡片标题和正文由父页面状态直接传入，确保切换流程时卡片同步刷新。
+  @Prop teachingFlowTitle: string = '① 初始化日志项目';
+  @Prop teachingFlowBody: string = '';
 
   @Builder
   InfoCard(title: string, body: string) {
@@ -80,8 +81,7 @@ export struct TeachingPathView {
           .margin({ bottom: 12 })
           .alignSelf(ItemAlign.Start)
 
-        this.InfoCard(getLogHapFlowTitle(this.teachingFlowStep),
-          getLogHapFlowBody(this.teachingFlowStep))
+        this.InfoCard(this.teachingFlowTitle, this.teachingFlowBody)
 
         if (this.teachingReady) {
           Text(this.teachingFlowStep < this.teachingFlowTotal - 1 ? '讲师身份已就位，可点击下方进入下一流程。' : '日志 HAP 开发教学流程已到最后一步。')
