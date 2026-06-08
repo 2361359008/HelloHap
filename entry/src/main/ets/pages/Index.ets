@@ -78,6 +78,9 @@ struct Index {
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
+  // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
+  // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
+  @State projectInitOverlayVisible: boolean = false;
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -140,6 +143,10 @@ struct Index {
   }
 
   handleChatStreamEvent(payload: Record<string, Object>) {
+    // 一旦 OpenClaw 开始返回（首个流式/最终/错误事件），立即结束「项目初始化」遮罩，不必等整轮跑完。
+    if (this.projectInitOverlayVisible) {
+      this.projectInitOverlayVisible = false;
+    }
     let state = payload['state'] as string;
     let text = '';
 
@@ -296,6 +303,7 @@ struct Index {
       this.currentExecutionLog += '[openclaw] free-dev identity init failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 身份初始化失败：' + message));
       this.openClawBusy = false;
+      this.projectInitOverlayVisible = false;
     }
   }
 
@@ -356,6 +364,7 @@ struct Index {
       this.currentExecutionLog += '[openclaw] teaching identity init failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 讲师身份初始化失败：' + message));
       this.openClawBusy = false;
+      this.projectInitOverlayVisible = false;
     }
   }
 
@@ -417,6 +426,7 @@ struct Index {
     this.freeDevReady = false;
     this.advancedScreen = 'menu';
     this.teachingReady = false;
+    this.projectInitOverlayVisible = false;
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -477,6 +487,7 @@ struct Index {
       return;
     }
     this.advancedScreen = 'teaching';
+    this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
@@ -496,6 +507,7 @@ struct Index {
       return;
     }
     this.advancedScreen = 'freedev';
+    this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
@@ -770,6 +782,7 @@ struct Index {
   }
 
   build() {
+    Stack() {
     Column() {
       if (this.currentMode === '') {
         // === Selection & Entry Home Page ===
@@ -1573,5 +1586,44 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#1e1e2e')
+
+    if (this.projectInitOverlayVisible) {
+      // 全屏聚焦加载遮罩：背景压暗，中间弹出聚焦卡片放加载动画（类似人脸识别那种聚焦弹窗）。
+      Column() {
+        Column() {
+          LoadingProgress()
+            .width(64)
+            .height(64)
+            .color('#89b4fa')
+
+          Text('正在初始化项目')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#cdd6f4')
+            .margin({ top: 14 })
+
+          Text('还原工程模板并准备 OpenClaw，请稍候')
+            .fontSize(12)
+            .fontColor('#a6adc8')
+            .lineHeight(18)
+            .textAlign(TextAlign.Center)
+            .margin({ top: 8 })
+        }
+        .width(320)
+        .padding({ left: 24, right: 24, top: 28, bottom: 28 })
+        .backgroundColor('#1e1e2e')
+        .borderRadius(16)
+        .border({ width: 1, color: '#45475a' })
+        .alignItems(HorizontalAlign.Center)
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#A6000000')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+    }
+    .width('100%')
+    .height('100%')
   }
 }
