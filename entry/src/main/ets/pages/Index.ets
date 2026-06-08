@@ -1716,6 +1716,7 @@ struct Index {
               chatMessages: $chatMessages,
               sourceFileLoading: this.sourceFileLoading,
               sourceFileError: this.sourceFileError,
+              sourceFileContent: this.sourceFileContent,
               sourceText: getSourceTabText(this.selectedTaskIndex, this.sourceFileLoading, this.sourceFileError, this.sourceFileContent),
               currentExecutionLog: this.currentExecutionLog,
               advancedFiles: this.advancedFiles,
