@@ -21,6 +21,11 @@ export const ADVANCED_INDEX_ETS: string = '/data/local/tmp/advanced-hapbuild/pro
 // 用来在板上直接看到还原效果。仿简单关练习关「全流程」按钮的做法，由还原 agent 在同一轮里跑完。
 export const ADVANCED_BUILD_SCRIPT: string = '/data/local/tmp/advanced-hapbuild/build_advanced_with_env.sh';
 
+// 进入自由开发「初始化身份」那一轮顺带执行的「装回最原始基线 HAP」脚本：只卸载+安装+启动，
+// 不编译不签名（直接装预先备份好的基线签名包 schedule-initial-signed.hap），所以很快。
+// 目的：每次进入自由开发都把板上已安装的 HAP 还原成最原始模板（项目初始化效果）。
+export const ADVANCED_INSTALL_INITIAL_SCRIPT: string = '/data/local/tmp/advanced-hapbuild/install_initial_advanced.sh';
+
 // 还原提示词统一追加的「改完即编译装包并汇报」步骤。
 function buildAndReportStep(): string {
   return `
@@ -37,7 +42,14 @@ sh ${ADVANCED_BUILD_SCRIPT}
 // 进入「自由开发」时发送的简短问候：会话已绑定还原 agent，这里只让它用一句话确认身份。
 // 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由还原 agent 工作区文件决定。
 export function buildScheduleIdentityPrompt(): string {
-  return `你好，请用一句话确认你当前的身份和任务（把日程 HAP 分身按主项目设计还原），然后回复「日程 HAP 还原身份已就位，等待提示词」。在收到具体提示词前不要改动任何文件。`;
+  return `你好，请用一句话确认你当前的身份和任务（把日程 HAP 分身按主项目设计还原）。
+
+确认身份后、在等待具体还原提示词之前，请先做一次「项目初始化」：执行下面这一条命令，把板上已安装的日程 HAP 还原成最原始模板（只卸载+安装+启动，不编译不签名，很快）：
+sh ${ADVANCED_INSTALL_INITIAL_SCRIPT}
+要求：
+1. 只执行这一条命令，不要执行任何额外命令，也不要改动任何文件。
+2. 命令成功则回复：日程 HAP 还原身份已就位，板上 HAP 已初始化为最原始模板，等待提示词。
+3. 命令失败则回复：身份已就位，但初始化安装失败，并原样附上脚本关键输出（尤其报错那几行）。`;
 }
 
 // 提示词①：还原「类型」行的下拉菜单。
