@@ -4,6 +4,51 @@
 
 import { ChatMessage } from '../model/OpenClawTypes';
 
+// 工程文件树节点（由扁平的相对路径列表构建而成）。
+class FileLeaf {
+  name: string = '';
+  relPath: string = '';
+  constructor(name: string, relPath: string) {
+    this.name = name;
+    this.relPath = relPath;
+  }
+}
+
+class FileTreeNode {
+  name: string = '';
+  relPath: string = '';
+  children: FileTreeNode[] = [];
+  files: FileLeaf[] = [];
+  findChild(name: string): FileTreeNode | undefined {
+    for (let i = 0; i < this.children.length; i++) {
+      if (this.children[i].name === name) {
+        return this.children[i];
+      }
+    }
+    return undefined;
+  }
+}
+
+// 目录树展开后的一行（目录或文件），供弹窗树形选择器渲染。
+class FileTreeRow {
+  name: string = '';
+  relPath: string = '';
+  isDir: boolean = false;
+  depth: number = 0;
+  expanded: boolean = false;
+  constructor(name: string, relPath: string, isDir: boolean, depth: number, expanded: boolean) {
+    this.name = name;
+    this.relPath = relPath;
+    this.isDir = isDir;
+    this.depth = depth;
+    this.expanded = expanded;
+  }
+}
+
+function compareByName(a: string, b: string): number {
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
+
 @Component
 export struct WorkspaceView {
   @Link workspaceTab: number;
@@ -13,9 +58,114 @@ export struct WorkspaceView {
   @Prop sourceFileLoading: boolean;
   @Prop sourceFileError: string;
   @Prop sourceText: string;
+  @Prop sourceFileContent: string;
   @Prop currentExecutionLog: string;
+  // 高级关卡源码区：整个工程的文件树与选中状态。
+  @Prop advancedFiles: string[];
+  @Prop advancedFilesLoading: boolean;
+  @Prop advancedFilesError: string;
+  @Prop selectedSourceFile: string;
   onSelectSourceTab: () => void = () => {};
   onRefreshSource: () => void = () => {};
+  onSelectAdvancedFile: (path: string) => void = () => {};
+  onRefreshAdvancedFiles: () => void = () => {};
+  // 文件树弹窗的显隐与已展开目录（相对路径）。
+  @State showFileTree: boolean = false;
+  @State expandedDirs: string[] = [];
+
+  // 高级关卡源码区右侧内容文本（根据加载/错误/选中状态计算）。
+  private advancedSourceDisplay(): string {
+    if (this.sourceFileLoading) {
+      return '// 正在从板端读取文件...';
+    }
+    if (this.sourceFileError) {
+      return '// 板端文件读取失败\n// ' + this.sourceFileError +
+        '\n// 请确认 shell-bridge (:7681) 已部署 /read-file 接口后重试';
+    }
+    if (!this.selectedSourceFile) {
+      return '// 点上方「选择文件」从工程目录树里选一个文件查看内容';
+    }
+    return this.sourceFileContent ? this.sourceFileContent : '// （该文件为空或无文本内容）';
+  }
+
+  // 由扁平相对路径列表构建目录树。
+  private buildFileTree(files: string[]): FileTreeNode {
+    let root = new FileTreeNode();
+    for (let i = 0; i < files.length; i++) {
+      let parts = files[i].split('/');
+      let node = root;
+      let acc = '';
+      for (let j = 0; j < parts.length; j++) {
+        let part = parts[j];
+        acc = acc.length > 0 ? acc + '/' + part : part;
+        if (j === parts.length - 1) {
+          node.files.push(new FileLeaf(part, acc));
+        } else {
+          let child = node.findChild(part);
+          if (child === undefined) {
+            child = new FileTreeNode();
+            child.name = part;
+            child.relPath = acc;
+            node.children.push(child);
+          }
+          node = child;
+        }
+      }
+    }
+    return root;
+  }
+
+  // 按「目录在前、各自字母序」深度优先展开成可见行；仅展开 expandedDirs 中的目录。
+  private flattenNode(node: FileTreeNode, depth: number, out: FileTreeRow[]): void {
+    let kids = node.children.slice();
+    kids.sort((a: FileTreeNode, b: FileTreeNode) => compareByName(a.name, b.name));
+    for (let i = 0; i < kids.length; i++) {
+      let dir = kids[i];
+      let isExp = this.expandedDirs.indexOf(dir.relPath) >= 0;
+      out.push(new FileTreeRow(dir.name, dir.relPath, true, depth, isExp));
+      if (isExp) {
+        this.flattenNode(dir, depth + 1, out);
+      }
+    }
+    let leaves = node.files.slice();
+    leaves.sort((a: FileLeaf, b: FileLeaf) => compareByName(a.name, b.name));
+    for (let i = 0; i < leaves.length; i++) {
+      out.push(new FileTreeRow(leaves[i].name, leaves[i].relPath, false, depth, false));
+    }
+  }
+
+  private buildVisibleRows(): FileTreeRow[] {
+    let root = this.buildFileTree(this.advancedFiles);
+    let out: FileTreeRow[] = [];
+    this.flattenNode(root, 0, out);
+    return out;
+  }
+
+  private toggleDir(relPath: string): void {
+    let idx = this.expandedDirs.indexOf(relPath);
+    if (idx >= 0) {
+      let next = this.expandedDirs.slice();
+      next.splice(idx, 1);
+      this.expandedDirs = next;
+    } else {
+      this.expandedDirs = this.expandedDirs.concat([relPath]);
+    }
+  }
+
+  // 打开文件树弹窗；首次打开时自动展开到当前选中文件的各级父目录。
+  private openFileTree(): void {
+    if (this.expandedDirs.length === 0 && this.selectedSourceFile.length > 0) {
+      let parts = this.selectedSourceFile.split('/');
+      let acc = '';
+      let seed: string[] = [];
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc.length > 0 ? acc + '/' + parts[i] : parts[i];
+        seed.push(acc);
+      }
+      this.expandedDirs = seed;
+    }
+    this.showFileTree = true;
+  }
 
   build() {
     Column() {
@@ -169,48 +319,215 @@ export struct WorkspaceView {
 
         } else if (this.workspaceTab === 1) {
           // === TAB 1: BOARD SOURCE FILE ===
-          Column() {
-            Row() {
-              Text('/data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets')
-                .fontSize(11)
-                .fontColor('#585b70')
-                .fontFamily('monospace')
+          if (this.currentMode === 'advanced') {
+            // 高级关卡：内容区占满整宽；文件目录改为点「选择文件」弹出的可展开目录树（编辑器风格）。
+            Stack({ alignContent: Alignment.TopStart }) {
+              // 基础层：顶部工具条 + 全宽文件内容
+              Column() {
+                Row() {
+                  Text('选择文件')
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor('#89b4fa')
+                    .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                    .backgroundColor('#313244')
+                    .borderRadius(6)
+                    .onClick(() => { this.openFileTree(); })
+                  Text(this.selectedSourceFile ? this.selectedSourceFile : '（未选择文件）')
+                    .fontSize(11)
+                    .fontColor('#a6adc8')
+                    .fontFamily('monospace')
+                    .layoutWeight(1)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .margin({ left: 10 })
+                  Text((this.advancedFilesLoading || this.sourceFileLoading) ? '读取中...' : '刷新')
+                    .fontSize(11)
+                    .fontColor((this.advancedFilesLoading || this.sourceFileLoading) ? '#585b70' : '#89b4fa')
+                    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                    .backgroundColor('#313244')
+                    .borderRadius(4)
+                    .margin({ left: 8 })
+                    .onClick(() => {
+                      if (!this.advancedFilesLoading && !this.sourceFileLoading) {
+                        this.onRefreshAdvancedFiles();
+                      }
+                    })
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 10, bottom: 8 })
+                .backgroundColor('#181825')
+
+                Scroll() {
+                  Column() {
+                    Text(this.advancedSourceDisplay())
+                      .fontSize(12)
+                      .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+                      .fontFamily('monospace')
+                      .lineHeight(17)
+                      .padding(14)
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .width('100%')
+                }
                 .layoutWeight(1)
-              if (this.selectedTaskIndex > 0) {
-                Text(this.sourceFileLoading ? '读取中...' : '刷新')
-                  .fontSize(11)
-                  .fontColor(this.sourceFileLoading ? '#585b70' : '#89b4fa')
-                  .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                  .backgroundColor('#313244')
-                  .borderRadius(4)
-                  .onClick(() => {
-                    if (!this.sourceFileLoading) {
-                      this.onRefreshSource();
+                .width('100%')
+              }
+              .width('100%')
+              .height('100%')
+
+              // 弹出层：可展开的工程目录树
+              if (this.showFileTree) {
+                Stack() {
+                  // 半透明遮罩，点击空白处关闭
+                  Column()
+                    .width('100%')
+                    .height('100%')
+                    .backgroundColor('#8C000000')
+                    .onClick(() => { this.showFileTree = false; })
+
+                  // 居中的树形选择面板
+                  Column() {
+                    Row() {
+                      Text('工程文件')
+                        .fontSize(13)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor('#cdd6f4')
+                      Blank()
+                      Text(this.advancedFilesLoading ? '加载中' : '刷新')
+                        .fontSize(11)
+                        .fontColor(this.advancedFilesLoading ? '#585b70' : '#89b4fa')
+                        .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                        .backgroundColor('#313244')
+                        .borderRadius(4)
+                        .onClick(() => {
+                          if (!this.advancedFilesLoading && !this.sourceFileLoading) {
+                            this.onRefreshAdvancedFiles();
+                          }
+                        })
+                      Text('✕')
+                        .fontSize(15)
+                        .fontColor('#a6adc8')
+                        .margin({ left: 14 })
+                        .onClick(() => { this.showFileTree = false; })
                     }
-                  })
+                    .width('100%')
+                    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                    .backgroundColor('#181825')
+
+                    Scroll() {
+                      Column() {
+                        if (this.advancedFilesError) {
+                          Text('文件列表读取失败\n' + this.advancedFilesError +
+                            '\n请确认 shell-bridge (:7681) 已部署 /list-files 接口')
+                            .fontSize(11)
+                            .fontColor('#f38ba8')
+                            .fontFamily('monospace')
+                            .lineHeight(16)
+                            .padding(12)
+                        } else if (this.advancedFiles.length === 0) {
+                          Text(this.advancedFilesLoading ? '正在加载文件列表...' : '暂无文件')
+                            .fontSize(11)
+                            .fontColor('#585b70')
+                            .padding(12)
+                        } else {
+                          ForEach(this.buildVisibleRows(), (row: FileTreeRow) => {
+                            Row() {
+                              Text(row.isDir ? (row.expanded ? '▾' : '▸') : '')
+                                .fontSize(11)
+                                .fontColor('#89b4fa')
+                                .width(16)
+                                .textAlign(TextAlign.Center)
+                              Text(row.name)
+                                .fontSize(12)
+                                .fontFamily('monospace')
+                                .fontWeight(row.isDir ? FontWeight.Bold : FontWeight.Normal)
+                                .fontColor(!row.isDir && row.relPath === this.selectedSourceFile
+                                  ? '#89b4fa' : (row.isDir ? '#cdd6f4' : '#a6adc8'))
+                                .layoutWeight(1)
+                                .maxLines(1)
+                                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            }
+                            .width('100%')
+                            .padding({ left: 8 + row.depth * 16, right: 8, top: 7, bottom: 7 })
+                            .backgroundColor(!row.isDir && row.relPath === this.selectedSourceFile
+                              ? '#313244' : 'transparent')
+                            .onClick(() => {
+                              if (row.isDir) {
+                                this.toggleDir(row.relPath);
+                              } else {
+                                this.onSelectAdvancedFile(row.relPath);
+                                this.showFileTree = false;
+                              }
+                            })
+                          }, (row: FileTreeRow) => row.relPath + (row.isDir ? '/d' : '/f'))
+                        }
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .width('100%')
+                    }
+                    .layoutWeight(1)
+                    .width('100%')
+                    .backgroundColor('#11111b')
+                  }
+                  .width('80%')
+                  .height('82%')
+                  .borderRadius(10)
+                  .clip(true)
+                  .border({ width: 1, color: '#313244' })
+                }
+                .width('100%')
+                .height('100%')
               }
             }
             .width('100%')
-            .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+            .height('100%')
+            .backgroundColor('#11111b')
 
-            Scroll() {
-              Column() {
-                Text(this.sourceText)
-                  .fontSize(13)
-                  .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+          } else {
+            Column() {
+              Row() {
+                Text('/data/local/tmp/oh61-hapbuild/project/entry/src/main/ets/pages/Index.ets')
+                  .fontSize(11)
+                  .fontColor('#585b70')
                   .fontFamily('monospace')
-                  .lineHeight(18)
-                  .padding(16)
+                  .layoutWeight(1)
+                if (this.selectedTaskIndex > 0) {
+                  Text(this.sourceFileLoading ? '读取中...' : '刷新')
+                    .fontSize(11)
+                    .fontColor(this.sourceFileLoading ? '#585b70' : '#89b4fa')
+                    .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                    .backgroundColor('#313244')
+                    .borderRadius(4)
+                    .onClick(() => {
+                      if (!this.sourceFileLoading) {
+                        this.onRefreshSource();
+                      }
+                    })
+                }
               }
-              .alignItems(HorizontalAlign.Start)
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10, bottom: 6 })
+
+              Scroll() {
+                Column() {
+                  Text(this.sourceText)
+                    .fontSize(13)
+                    .fontColor(this.sourceFileError ? '#f38ba8' : '#a6e3a1')
+                    .fontFamily('monospace')
+                    .lineHeight(18)
+                    .padding(16)
+                }
+                .alignItems(HorizontalAlign.Start)
+                .width('100%')
+              }
+              .layoutWeight(1)
               .width('100%')
             }
-            .layoutWeight(1)
             .width('100%')
+            .height('100%')
+            .backgroundColor('#11111b')
           }
-          .width('100%')
-          .height('100%')
-          .backgroundColor('#11111b')
 
         } else if (this.workspaceTab === 2) {
           // === TAB 2: OPENCLAW AGENT LOGS ===

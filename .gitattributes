@@ -1,1 +1,4 @@
 *.sh text eol=lf
+
+# 提示词草稿本保持 LF（板端文本）
+freedev-prompts.txt text eol=lf

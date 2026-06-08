@@ -3,7 +3,7 @@ import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
-import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID } from '../model/FreeDevContent';
+import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
 import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
@@ -34,6 +34,12 @@ struct Index {
   @State sourceFileContent: string = '';
   @State sourceFileLoading: boolean = false;
   @State sourceFileError: string = '';
+  // 高级关卡源码区：浏览整个工程文件树。advancedFiles 为相对工程根目录的文件路径列表，
+  // selectedSourceFile 为当前查看的文件（相对路径）。
+  @State advancedFiles: string[] = [];
+  @State advancedFilesLoading: boolean = false;
+  @State advancedFilesError: string = '';
+  @State selectedSourceFile: string = '';
   @State courseResetting: boolean = false;
   @State resetConfirmVisible: boolean = false;
   @State courseResetNoticeVisible: boolean = false;
@@ -139,8 +145,74 @@ struct Index {
     }
   }
 
+  // 高级关卡：拉取工程根目录下的所有文件（相对路径列表），默认选中主页面 Index.ets。
+  async fetchAdvancedFileList(): Promise<void> {
+    this.advancedFilesLoading = true;
+    this.advancedFilesError = '';
+    try {
+      let listUrl = 'http://127.0.0.1:7681/list-files?path=' + encodeURIComponent(ADVANCED_PROJECT_ROOT);
+      let text = await this.client.requestText(listUrl, http.RequestMethod.GET);
+      if (!text || text.indexOf('error:') === 0 || text.indexOf('path not allowed') === 0 ||
+        text.indexOf('dir not found') === 0 || text.indexOf('missing path') === 0) {
+        throw new Error(text.trim() || 'empty file list response');
+      }
+      let files: string[] = [];
+      let lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.length > 0) {
+          files.push(line);
+        }
+      }
+      this.advancedFiles = files;
+      // 默认选中主页面 Index.ets（若存在），否则第一项。
+      if (files.length > 0) {
+        let preferred = 'entry/src/main/ets/pages/Index.ets';
+        let target = files.indexOf(preferred) >= 0 ? preferred : files[0];
+        await this.selectAdvancedSourceFile(target);
+      } else {
+        this.selectedSourceFile = '';
+        this.sourceFileContent = '';
+      }
+    } catch (e) {
+      this.advancedFilesError = e instanceof Error ? e.message : String(e);
+      this.advancedFiles = [];
+    } finally {
+      this.advancedFilesLoading = false;
+    }
+  }
+
+  // 高级关卡：读取选中文件内容（relPath 相对工程根目录）。
+  async selectAdvancedSourceFile(relPath: string): Promise<void> {
+    this.selectedSourceFile = relPath;
+    this.sourceFileLoading = true;
+    this.sourceFileError = '';
+    try {
+      let absPath = ADVANCED_PROJECT_ROOT + '/' + relPath;
+      let readUrl = 'http://127.0.0.1:7681/read-file?path=' + encodeURIComponent(absPath);
+      let content = await this.client.requestText(readUrl, http.RequestMethod.GET);
+      if (content.indexOf('error:') === 0 || content.indexOf('path not allowed') === 0 ||
+        content.indexOf('file not found') === 0 || content.indexOf('missing path') === 0) {
+        throw new Error(content.trim() || 'empty source file response');
+      }
+      this.sourceFileContent = content;
+    } catch (e) {
+      this.sourceFileContent = '';
+      this.sourceFileError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.sourceFileLoading = false;
+    }
+  }
+
   onSourceTabSelected(): void {
     this.workspaceTab = 1;
+    if (this.currentMode === 'advanced') {
+      // 高级关卡：浏览整个工程文件树，首次进入（或尚未加载）时拉取文件列表。
+      if (this.advancedFiles.length === 0 && !this.advancedFilesLoading) {
+        this.fetchAdvancedFileList();
+      }
+      return;
+    }
     if (this.selectedTaskIndex > 0) {
       this.fetchBoardSourceFile();
     }
@@ -485,6 +557,10 @@ struct Index {
     this.advancedScreen = 'menu';
     this.teachingReady = false;
     this.projectInitOverlayVisible = false;
+    this.advancedFiles = [];
+    this.advancedFilesError = '';
+    this.selectedSourceFile = '';
+    this.sourceFileContent = '';
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -548,13 +624,19 @@ struct Index {
     }
   }
 
-  // 进入「教学之路」：先刷回初始工程，再按需初始化讲师身份。
+  // 进入「教学之路」：首次进入刷回初始工程并初始化讲师身份；
+  // 若身份已就位（例如返回主页后再次进入），直接回到教学之路页，不重复还原/初始化。
   async enterTeaching(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
         duration: 1800
       });
+      return;
+    }
+    if (this.teachingReady) {
+      this.advancedScreen = 'teaching';
+      this.workspaceTab = 0;
       return;
     }
     let epoch = this.courseEpoch;
@@ -573,13 +655,19 @@ struct Index {
     }
   }
 
-  // 进入「自由发挥」：先刷回初始工程，再初始化还原身份。
+  // 进入「自由发挥」：首次进入刷回初始工程并初始化还原身份；
+  // 若身份已就位（例如返回主页后再次进入），直接回到自由开发页，不重复还原/初始化。
   async enterFreeDev(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
         duration: 1800
       });
+      return;
+    }
+    if (this.freeDevReady) {
+      this.advancedScreen = 'freedev';
+      this.workspaceTab = 0;
       return;
     }
     let epoch = this.courseEpoch;
@@ -887,9 +975,9 @@ struct Index {
             this.tutorialStep = 0;
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
-            this.freeDevReady = false;
             this.advancedScreen = 'menu';
-            this.teachingReady = false;
+            // 返回主页不等于重置：不在此清空 freeDevReady/teachingReady，
+            // 再次进入高级课程时保留已初始化的身份，避免重复初始化（重置请走「重置开发」按钮）。
           }
         })
 
@@ -989,7 +1077,6 @@ struct Index {
                     FreeDevView({
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
-                      onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initFreeDevIdentity(); },
                       onSendRestoreType: () => {
                         this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
@@ -1629,10 +1716,17 @@ struct Index {
               chatMessages: $chatMessages,
               sourceFileLoading: this.sourceFileLoading,
               sourceFileError: this.sourceFileError,
+              sourceFileContent: this.sourceFileContent,
               sourceText: getSourceTabText(this.selectedTaskIndex, this.sourceFileLoading, this.sourceFileError, this.sourceFileContent),
               currentExecutionLog: this.currentExecutionLog,
+              advancedFiles: this.advancedFiles,
+              advancedFilesLoading: this.advancedFilesLoading,
+              advancedFilesError: this.advancedFilesError,
+              selectedSourceFile: this.selectedSourceFile,
               onSelectSourceTab: () => { this.onSourceTabSelected(); },
-              onRefreshSource: () => { this.fetchBoardSourceFile(); }
+              onRefreshSource: () => { this.fetchBoardSourceFile(); },
+              onSelectAdvancedFile: (path: string) => { this.selectAdvancedSourceFile(path); },
+              onRefreshAdvancedFiles: () => { this.fetchAdvancedFileList(); }
             })
           }
           .width('100%')
