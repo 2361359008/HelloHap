@@ -88,8 +88,34 @@ export struct FreeDevView {
             .fontColor('#a6e3a1')
             .margin({ top: 2, bottom: 8 })
             .alignSelf(ItemAlign.Start)
+        } else if (this.freeDevBusy) {
+          // 项目初始化加载动画：还原工程 + 装回最原始基线 HAP + 初始化还原身份期间显示。
+          Column() {
+            LoadingProgress()
+              .width(48)
+              .height(48)
+              .color('#89b4fa')
+
+            Text('正在初始化项目...')
+              .fontSize(13)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#cdd6f4')
+              .margin({ top: 10 })
+
+            Text('还原工程模板 → 安装最原始的日程 HAP → 初始化还原身份，请稍候')
+              .fontSize(11)
+              .fontColor('#a6adc8')
+              .lineHeight(17)
+              .textAlign(TextAlign.Center)
+              .margin({ top: 6 })
+          }
+          .width('100%')
+          .padding({ top: 18, bottom: 18 })
+          .margin({ top: 4, bottom: 8 })
+          .backgroundColor('#313244')
+          .borderRadius(8)
         } else {
-          Text(this.freeDevBusy ? '正在初始化还原身份...' : '还原身份未就位，请重新初始化后再发送提示词。')
+          Text('还原身份未就位，请重新初始化后再发送提示词。')
             .fontSize(11)
             .fontColor('#f9e2af')
             .margin({ top: 2, bottom: 8 })
