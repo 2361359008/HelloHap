@@ -413,9 +413,10 @@ export class OpenClawClient {
     this.abortActiveRun(oldWs);
     // 稍等让 abort 帧发出后再关旧连接（立刻 close 可能来不及把 abort 送出去）。
     if (oldWs) {
+      let wsToClose: webSocket.WebSocket = oldWs;
       setTimeout(() => {
         try {
-          oldWs.close();
+          wsToClose.close();
         } catch (e) {
           console.error('Error closing WebSocket: ' + (e as Error).message);
         }
