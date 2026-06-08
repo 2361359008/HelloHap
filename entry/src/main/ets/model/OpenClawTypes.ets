@@ -94,3 +94,27 @@ export class OpenClawRpcRequest {
 
 export class OpenClawEmptyParams {
 }
+
+// chat.abort 参数：中止指定 runId 的在途对话/任务（如仍在跑的自动编译）。
+// 网关要求必须带 sessionKey，否则报 "invalid chat.abort params: must have required property 'sessionKey'"。
+export class OpenClawAbortParams {
+  sessionKey: string = '';
+  runId: string = '';
+
+  constructor(sessionKey: string, runId: string) {
+    this.sessionKey = sessionKey;
+    this.runId = runId;
+  }
+}
+
+// sessions.create 参数：可选 agentId，把会话绑定到指定 agent（多 agent 身份隔离）。
+// 留空则由网关使用默认 agent（main）。
+export class OpenClawCreateSessionParams {
+  agentId?: string;
+
+  constructor(agentId: string) {
+    if (agentId) {
+      this.agentId = agentId;
+    }
+  }
+}

@@ -3,9 +3,13 @@ import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
+import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID } from '../model/FreeDevContent';
+import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
+import { TeachingPathView } from '../view/TeachingPathView';
+import { FreeDevView } from '../view/FreeDevView';
 import { WorkspaceView } from '../view/WorkspaceView';
 
 @Entry
@@ -38,6 +42,8 @@ struct Index {
   private courseResetNoticeSequence: number = 0;
   private readonly boardIndexEtsUrl: string =
     'http://127.0.0.1:7681/read-file?path=%2Fdata%2Flocal%2Ftmp%2Foh61-hapbuild%2Fproject%2Fentry%2Fsrc%2Fmain%2Fets%2Fpages%2FIndex.ets';
+  // 高级版（自由发挥/教学共用的 schedulehap-lite 工程）还原接口：刷回初始备份。
+  private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
 
   // Step Statuses (0: pending, 1: active, 2: success)
   @State step1Status: number = 0;
@@ -69,6 +75,15 @@ struct Index {
   @State chatInput: string = '';
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
+  @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
+  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
+  @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
+  // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
+  // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
+  @State projectInitOverlayVisible: boolean = false;
+  // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
+  // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
+  private courseEpoch: number = 0;
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -131,6 +146,10 @@ struct Index {
   }
 
   handleChatStreamEvent(payload: Record<string, Object>) {
+    // 一旦 OpenClaw 开始返回（首个流式/最终/错误事件），立即结束「项目初始化」遮罩，不必等整轮跑完。
+    if (this.projectInitOverlayVisible) {
+      this.projectInitOverlayVisible = false;
+    }
     let state = payload['state'] as string;
     let text = '';
 
@@ -155,19 +174,26 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }
     } else if (state === 'final') {
-      if (this.chatMessages.length > 0) {
+      // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
+      // 若已有实质过程文案则保留并补一句「已完成」；否则给一句明确的完成提示。
+      let trimmedFinal = text.trim();
+      let isEmptyFinal = (trimmedFinal === '' || trimmedFinal === 'NO_REPLY');
+      let fallbackFinal = '已执行完成，但本轮未返回文字总结。可在「工作区」查看改动的代码与编译/安装结果。';
+      if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
         let lastMsg = this.chatMessages[this.chatMessages.length - 1];
-        if (lastMsg.sender === 'assistant') {
+        if (!isEmptyFinal) {
           lastMsg.text = text;
+        } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
+          lastMsg.text = fallbackFinal;
         } else {
-          this.chatMessages.push(new ChatMessage('assistant', text));
+          lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
         }
       } else {
-        this.chatMessages.push(new ChatMessage('assistant', text));
+        this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
       }
       this.chatMessages = [...this.chatMessages];
-      
-      this.client.completeTurn(text);
+
+      this.client.completeTurn(isEmptyFinal ? fallbackFinal : text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
     } else if (state === 'error' || state === 'aborted') {
@@ -181,6 +207,16 @@ struct Index {
       this.client.failTurn(new Error(errorMsg));
       this.openClawBusy = false;
     }
+  }
+
+  // 判断某条助手气泡是否只是占位文案（「OpenClaw 正在…」「正在还原…」）或空，
+  // 用于 final 兜底：最终回复为空/NO_REPLY 时决定是补完成提示还是保留已有过程文案。
+  private isPlaceholderOrEmpty(s: string): boolean {
+    let t = s.trim();
+    if (t === '') {
+      return true;
+    }
+    return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
   }
 
   async sendChatMessage() {
@@ -205,6 +241,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('user', userMsg));
     this.chatInput = '';
     this.openClawBusy = true;
+    let epoch = this.courseEpoch;
 
     try {
       let sendMsg = userMsg;
@@ -224,12 +261,20 @@ struct Index {
         this.level3QaPromptInjected = true;
         this.level3QaPromptInjected = true;
       }
+      let chatAgentId = '';
+      if (this.currentMode === 'advanced') {
+        chatAgentId = this.advancedScreen === 'teaching' ? TEACHING_AGENT_ID : FREEDEV_AGENT_ID;
+      }
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, chatAgentId);
       this.openClawBusy = false;
     } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] chat failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
@@ -258,7 +303,162 @@ struct Index {
     });
   }
 
+  async initFreeDevIdentity(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.studentQuestionEnabled = true;
+    this.workspaceTab = 0;
+    this.chatInput = '';
+    this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 还原身份'));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(buildScheduleIdentityPrompt(), () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
+        this.chatMessages = [...this.chatMessages];
+      }, FREEDEV_AGENT_ID);
+      // 被重置过就不再标记就绪（旧身份初始化作废），避免误置 freeDevReady 让旧会话被当成已就绪。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      this.freeDevReady = true;
+      this.openClawBusy = false;
+    } catch (error) {
+      // 因课程重置导致的失败（代际已变）：clearCourseState 已把对话刷新干净，
+      // 这里不要再往里补「初始化失败：Course reset」残留文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] free-dev identity init failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 身份初始化失败：' + message));
+      this.openClawBusy = false;
+      this.projectInitOverlayVisible = false;
+    }
+  }
+
+  async sendFreeDevPrompt(promptText: string, label: string): Promise<void> {
+    if (!this.freeDevReady) {
+      promptAction.showToast({
+        message: '请先点击“进入自由开发”初始化身份。',
+        duration: 1800
+      });
+      return;
+    }
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('user', label));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(promptText, () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
+        this.chatMessages = [...this.chatMessages];
+      }, FREEDEV_AGENT_ID);
+      this.openClawBusy = false;
+    } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] free-dev prompt failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
+      this.openClawBusy = false;
+    }
+  }
+
+  async initTeachingIdentity(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.studentQuestionEnabled = true;
+    this.workspaceTab = 0;
+    this.chatInput = '';
+    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日程 HAP 课程讲师身份'));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
+        this.chatMessages = [...this.chatMessages];
+      }, TEACHING_AGENT_ID);
+      // 被重置过就不再标记就绪（旧身份初始化作废）。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      this.teachingReady = true;
+      this.openClawBusy = false;
+    } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] teaching identity init failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 讲师身份初始化失败：' + message));
+      this.openClawBusy = false;
+      this.projectInitOverlayVisible = false;
+    }
+  }
+
+  async explainScheduleFilePrep(): Promise<void> {
+    if (!this.teachingReady) {
+      promptAction.showToast({
+        message: '请先初始化讲师身份。',
+        duration: 1800
+      });
+      return;
+    }
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.studentQuestionEnabled = true;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
+    this.openClawBusy = true;
+    try {
+      await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
+        this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
+        this.chatMessages = [...this.chatMessages];
+      }, TEACHING_AGENT_ID);
+      this.openClawBusy = false;
+    } catch (error) {
+      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      let message = (error as Error).message;
+      this.currentExecutionLog += '[openclaw] teaching file-prep failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
+      this.openClawBusy = false;
+    }
+  }
+
   clearCourseState(): void {
+    // 页面层代际自增：在途的 enterFreeDev/enterTeaching/init* 在其 await 返回后会发现
+    // 代际已变而放弃继续启动旧流程（如已被重置后才返回的 restoreAdvancedProject）。
+    this.courseEpoch++;
     this.client.reset();
 
     this.selectedTaskIndex = 0;
@@ -280,6 +480,10 @@ struct Index {
     this.chatInput = '';
     this.openClawBusy = false;
     this.studentQuestionEnabled = false;
+    this.freeDevReady = false;
+    this.advancedScreen = 'menu';
+    this.teachingReady = false;
+    this.projectInitOverlayVisible = false;
     this.chatMessages = [
       new ChatMessage('assistant', '你好，我是 OpenClaw 智能答疑助手。请先选择第一关并呼叫 OpenClaw 完成首轮协同开发，随后即可继续提问。')
     ];
@@ -290,14 +494,19 @@ struct Index {
       return;
     }
     this.courseResetting = true;
+    // 先无条件清掉会话与课程状态（含 client.reset() 关旧连接 + freeDevReady/teachingReady=false）。
+    // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
+    // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
+    // 简单关还原脚本轻量、基本不失败，所以一直能开新会话——这正是两者表现差异的根因。
+    this.clearCourseState();
+    this.sourceFileContent = '';
+    this.sourceFileError = '';
     try {
+      let resetUrl = this.currentMode === 'advanced' ? this.advancedResetUrl : 'http://127.0.0.1:7681/reset-course';
       await this.client.requestText(
-        'http://127.0.0.1:7681/reset-course',
+        resetUrl,
         http.RequestMethod.GET
       );
-      this.clearCourseState();
-      this.sourceFileContent = '';
-      this.sourceFileError = '';
       this.showCourseResetNotice(true);
     } catch (e) {
       let message = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
@@ -305,6 +514,77 @@ struct Index {
       this.showCourseResetNotice(false);
     } finally {
       this.courseResetting = false;
+    }
+  }
+
+  // 把板端高级版工程（/data/local/tmp/advanced-hapbuild/project）刷回初始备份，
+  // 确保每次进入教学/自由发挥都是最原始的模板（OpenClaw 交互会改动该工程）。
+  async restoreAdvancedProject(): Promise<boolean> {
+    try {
+      let out = await this.client.requestText(this.advancedResetUrl, http.RequestMethod.GET);
+      this.currentExecutionLog += '[reset-advanced] ' + out + '\n';
+      let ok = out.indexOf('ok:') >= 0;
+      this.chatMessages.push(new ChatMessage('assistant', ok
+        ? '日程工程已还原到初始模板，可以开始本关。'
+        : '日程工程还原未成功（将继续，但工程可能不是初始状态）：' + out));
+      this.chatMessages = [...this.chatMessages];
+      return ok;
+    } catch (e) {
+      let message = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+      this.currentExecutionLog += '[reset-advanced] failed: ' + message + '\n';
+      this.chatMessages.push(new ChatMessage('assistant', '日程工程还原请求失败（将继续）：' + message));
+      this.chatMessages = [...this.chatMessages];
+      return false;
+    }
+  }
+
+  // 进入「教学之路」：先刷回初始工程，再按需初始化讲师身份。
+  async enterTeaching(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.advancedScreen = 'teaching';
+    this.projectInitOverlayVisible = true;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
+    this.chatMessages = [...this.chatMessages];
+    await this.restoreAdvancedProject();
+    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
+    if (!this.teachingReady) {
+      await this.initTeachingIdentity();
+    }
+  }
+
+  // 进入「自由发挥」：先刷回初始工程，再初始化还原身份。
+  async enterFreeDev(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    let epoch = this.courseEpoch;
+    this.advancedScreen = 'freedev';
+    this.projectInitOverlayVisible = true;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
+    this.chatMessages = [...this.chatMessages];
+    await this.restoreAdvancedProject();
+    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
+    if (!this.freeDevReady) {
+      await this.initFreeDevIdentity();
     }
   }
 
@@ -510,6 +790,7 @@ struct Index {
       });
       return;
     }
+    let epoch = this.courseEpoch;
     this.tutorialStep = 2;
     this.currentProgress = 0;
     this.currentExecutionLog = '[info] OpenClaw Agent gateway handoff starting...\n';
@@ -538,6 +819,10 @@ struct Index {
       this.currentExecutionLog += '[openclaw] real agent turn accepted.\n';
       this.currentExecutionLog += '[openclaw] reply: ' + reply + '\n';
     } catch (error) {
+      // 因课程重置导致的失败：对话与进度已刷新，不再补残留失败文案/不回退步骤。
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
       let message = (error as Error).message;
       this.currentExecutionLog += '[openclaw] real gateway call failed: ' + message + '\n';
       this.currentExecutionLog += '[openclaw] stopped: OpenClaw call is required.\n';
@@ -546,6 +831,10 @@ struct Index {
       this.currentProgress = 0;
       this.openClawBusy = false;
       this.tutorialStep = 1; // Back to step 1
+      return;
+    }
+    // 成功返回后若期间已被重置，放弃推进关卡进度（避免在新课程态上误推进）。
+    if (epoch !== this.courseEpoch) {
       return;
     }
 
@@ -573,6 +862,7 @@ struct Index {
   }
 
   build() {
+    Stack() {
     Column() {
       if (this.currentMode === '') {
         // === Selection & Entry Home Page ===
@@ -587,6 +877,9 @@ struct Index {
             this.tutorialStep = 0;
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
+            this.freeDevReady = false;
+            this.advancedScreen = 'menu';
+            this.teachingReady = false;
           }
         })
 
@@ -611,7 +904,7 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0) {
+            if (this.tutorialStep > 0 || this.currentMode === 'advanced') {
               Button(this.courseResetting ? '正在还原项目...' : '重置课程')
                 .height(36)
                 .fontSize(14)
@@ -672,7 +965,34 @@ struct Index {
               // 1. Top Section
               Column() {
                 if (this.currentMode === 'advanced') {
-                  AdvancedMenuView()
+                  if (this.advancedScreen === 'teaching') {
+                    TeachingPathView({
+                      teachingReady: this.teachingReady,
+                      teachingBusy: this.openClawBusy,
+                      onBack: () => { this.advancedScreen = 'menu'; },
+                      onReinitIdentity: () => { this.initTeachingIdentity(); },
+                      onExplainWithOpenClaw: () => { this.explainScheduleFilePrep(); }
+                    })
+                  } else if (this.advancedScreen === 'freedev') {
+                    FreeDevView({
+                      freeDevReady: this.freeDevReady,
+                      freeDevBusy: this.openClawBusy,
+                      onBack: () => { this.advancedScreen = 'menu'; },
+                      onReinitIdentity: () => { this.initFreeDevIdentity(); },
+                      onSendRestoreType: () => {
+                        this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
+                      },
+                      onSendRestoreReminder: () => {
+                        this.sendFreeDevPrompt(buildRestoreReminderPrompt(), '② 还原：提醒 + 响铃开关');
+                      }
+                    })
+                  } else {
+                    AdvancedMenuView({
+                      onEnterTeaching: () => { this.enterTeaching(); },
+                      freeDevBusy: this.openClawBusy,
+                      onEnterFreeDev: () => { this.enterFreeDev(); }
+                    })
+                  }
 
                 } else if (this.tutorialStep === 0) {
                   // Step 0: Choose Course List
@@ -1236,7 +1556,7 @@ struct Index {
               .width('100%')
               .layoutWeight(1)
 
-              if (this.tutorialStep !== 0) {
+              if (this.tutorialStep !== 0 || (this.currentMode === 'advanced' && this.advancedScreen !== 'menu')) {
                 // 2. Student question input (hidden on level selection page to avoid covering cards)
                 Column() {
                   // Input Bar at the Bottom
@@ -1293,6 +1613,7 @@ struct Index {
             WorkspaceView({
               workspaceTab: $workspaceTab,
               selectedTaskIndex: this.selectedTaskIndex,
+              currentMode: this.currentMode,
               chatMessages: $chatMessages,
               sourceFileLoading: this.sourceFileLoading,
               sourceFileError: this.sourceFileError,
@@ -1345,5 +1666,44 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#1e1e2e')
+
+    if (this.projectInitOverlayVisible) {
+      // 全屏聚焦加载遮罩：背景压暗，中间弹出聚焦卡片放加载动画（类似人脸识别那种聚焦弹窗）。
+      Column() {
+        Column() {
+          LoadingProgress()
+            .width(64)
+            .height(64)
+            .color('#89b4fa')
+
+          Text('正在初始化项目')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#cdd6f4')
+            .margin({ top: 14 })
+
+          Text('还原工程模板并准备 OpenClaw，请稍候')
+            .fontSize(12)
+            .fontColor('#a6adc8')
+            .lineHeight(18)
+            .textAlign(TextAlign.Center)
+            .margin({ top: 8 })
+        }
+        .width(320)
+        .padding({ left: 24, right: 24, top: 28, bottom: 28 })
+        .backgroundColor('#1e1e2e')
+        .borderRadius(16)
+        .border({ width: 1, color: '#45475a' })
+        .alignItems(HorizontalAlign.Center)
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#A6000000')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+    }
+    .width('100%')
+    .height('100%')
   }
 }

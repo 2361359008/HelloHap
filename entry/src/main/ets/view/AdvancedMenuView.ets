@@ -1,11 +1,16 @@
 // 高级版菜单视图
 // 从 pages/Index.ets 抽取：高级版左侧的"教学之路 / 自由开发"两个入口卡片。
-// 具体功能暂未开发，点击仅提示。
-
-import { promptAction } from '@kit.ArkUI';
+// 两个入口点击后各自进入独立子界面（教学之路 / 自由开发视图）。
 
 @Component
 export struct AdvancedMenuView {
+  // 点击「进入教学之路」：进入教学子界面
+  onEnterTeaching: () => void = () => {};
+  // 点击「进入自由开发」：进入自由开发子界面
+  onEnterFreeDev: () => void = () => {};
+  // openclaw 是否正在处理（处理中禁用入口按钮）
+  @Prop freeDevBusy: boolean = false;
+
   build() {
     Column() {
       Text('请选择高级开发模式')
@@ -33,12 +38,7 @@ export struct AdvancedMenuView {
           .fontSize(12)
           .backgroundColor('#45475a')
           .fontColor('#fab387')
-          .onClick(() => {
-            promptAction.showToast({
-              message: '教学之路正在开发中。',
-              duration: 1800
-            });
-          })
+          .onClick(() => { this.onEnterTeaching(); })
       }
       .width('100%')
       .padding(14)
@@ -54,10 +54,11 @@ export struct AdvancedMenuView {
           .fontColor('#89b4fa')
           .margin({ bottom: 6 })
 
-        Text('进入开放式开发空间，自主规划和实现 HAP 项目。')
+        Text('进入日程 HAP 还原任务：初始化 openclaw 身份后，选择提示词驱动 OpenClaw 协同开发。')
           .fontSize(12)
           .fontColor('#a6adc8')
           .margin({ bottom: 12 })
+          .lineHeight(16)
 
         Button('进入自由开发')
           .width('100%')
@@ -65,12 +66,9 @@ export struct AdvancedMenuView {
           .fontSize(12)
           .backgroundColor('#45475a')
           .fontColor('#89b4fa')
-          .onClick(() => {
-            promptAction.showToast({
-              message: '自由开发正在开发中。',
-              duration: 1800
-            });
-          })
+          .enabled(!this.freeDevBusy)
+          .opacity(this.freeDevBusy ? 0.5 : 1)
+          .onClick(() => { this.onEnterFreeDev(); })
       }
       .width('100%')
       .padding(14)

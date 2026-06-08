@@ -8,6 +8,7 @@ import { ChatMessage } from '../model/OpenClawTypes';
 export struct WorkspaceView {
   @Link workspaceTab: number;
   @Prop selectedTaskIndex: number;
+  @Prop currentMode: string;
   @Link chatMessages: Array<ChatMessage>;
   @Prop sourceFileLoading: boolean;
   @Prop sourceFileError: string;
@@ -103,7 +104,7 @@ export struct WorkspaceView {
 
             Scroll() {
               Column() {
-                if (this.selectedTaskIndex === 0) {
+                if (this.selectedTaskIndex === 0 && this.currentMode !== 'advanced') {
                   Column() {
                     Text('选择左侧关卡后，这里会显示本应用内置的 OpenClaw 主对话区。')
                       .fontSize(15)
