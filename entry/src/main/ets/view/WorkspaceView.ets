@@ -293,6 +293,8 @@ export struct WorkspaceView {
                           .fontSize(13)
                           .fontColor(msg.sender === 'user' ? '#1e1e2e' : '#cdd6f4')
                           .lineHeight(19)
+                          .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                          .copyOption(CopyOptions.LocalDevice)
                       }
                       .padding({ left: 14, right: 14, top: 11, bottom: 11 })
                       .backgroundColor(msg.sender === 'user' ? '#f5c2e7' : '#313244')
@@ -550,6 +552,8 @@ export struct WorkspaceView {
                   .fontFamily('monospace')
                   .lineHeight(16)
                   .padding(16)
+                  .textSelectable(TextSelectableMode.SELECTABLE_UNFOCUSABLE)
+                  .copyOption(CopyOptions.LocalDevice)
               }
             }
             .alignItems(HorizontalAlign.Start)
