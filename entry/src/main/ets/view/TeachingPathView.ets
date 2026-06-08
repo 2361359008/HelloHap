@@ -1,13 +1,13 @@
 // 教学之路视图
-// 高级版「教学之路」第一关：日程项目文件准备解读。
+// 高级版「教学之路」开发流程：日志项目初始化与后续流程解读。
 // 应用内分步讲解卡片 + 一个「让 OpenClaw 详解」按钮（点击后由父组件调用 openclaw）。
-// 本关只讲创建日程 HAP 需要准备哪些文件及其作用，不涉及页面组件的设计代码。
+// 首步先以已经设计好的日志 HAP 为入口，按流程介绍后续开发步骤。
 
 @Component
 export struct TeachingPathView {
   // 返回高级版菜单
   onBack: () => void = () => {};
-  // 让 OpenClaw 详解文件准备
+  // 让 OpenClaw 详解开发流程
   onExplainWithOpenClaw: () => void = () => {};
   // 重新初始化讲师身份
   onReinitIdentity: () => void = () => {};
@@ -60,40 +60,40 @@ export struct TeachingPathView {
         .margin({ top: 6, bottom: 12 })
         .justifyContent(FlexAlign.Start)
 
-        Text('第一关：日程项目文件准备解读')
+        Text('开发流程：日志 HAP 教学导览')
           .fontSize(16)
           .fontWeight(FontWeight.Bold)
           .fontColor('#cdd6f4')
           .margin({ bottom: 8 })
           .alignSelf(ItemAlign.Start)
 
-        Text('本关目标：看懂创建一个日程 HAP 需要准备哪些文件、各自作用。先不涉及日程页面里组件的设计代码。')
+        Text('本流程目标：从已经完成视觉设计的日志 HAP 开始，按开发顺序理解工程初始化、页面搭建、日志数据、交互与构建部署。')
           .fontSize(12)
           .fontColor('#a6adc8')
           .lineHeight(18)
           .margin({ bottom: 12 })
           .alignSelf(ItemAlign.Start)
 
-        this.InfoCard('① 工程结构总览',
-          '一个 HAP 工程的标准目录：AppScope（应用级身份与资源）、entry（唯一的 HAP 模块，放页面与逻辑）、signing（签名材料）、构建脚本与脚手架。先建立"一个工程通常只有一个 entry 模块"的整体印象。')
+        this.InfoCard('① 初始化日志项目',
+          '欢迎来到日志 HAP 的开发教学流程。你可以看到目前日志 HAP 已经设计好的样子，接下来我将深度介绍该 HAP 的开发流程。第一步先建立工程视角：它由 AppScope、entry、resources、signing 与构建脚本共同组成。')
 
-        this.InfoCard('② 应用身份',
-          'AppScope/app.json5：bundleName（包名）、versionCode、versionName、label（图标名）。\nAppScope/resources/base/element/string.json：app_name（应用显示名，被 app.json5 的 label 引用）。这两处决定"这个应用是谁、叫什么"。')
+        this.InfoCard('② 应用身份与资源',
+          'AppScope/app.json5：bundleName（包名）、versionCode、versionName、label（应用名引用）。\nAppScope/resources/base/element/string.json：app_name（应用显示名）。这一步确定日志 HAP 的应用身份、名称与基础资源。')
 
-        this.InfoCard('③ 模块与权限',
-          'entry/src/main/module.json5：配置 abilities（应用能力入口）与 requestPermissions（申请的系统权限，例如要联网就在这里加网络权限）。')
+        this.InfoCard('③ 模块入口配置',
+          'entry/src/main/module.json5：配置 abilities（应用能力入口）与 requestPermissions（申请的系统权限）。日志 HAP 的页面启动入口、路由能力和必要权限都从这里开始对齐。')
 
-        this.InfoCard('④ 入口与页面',
-          'entryability/EntryAbility.ets：应用入口 Ability（一般不动）。\npages/Index.ets：首页页面（后续关卡才在这里写日程界面）。\nresources/base/profile/main_pages.json：路由页面清单，新增页面要在这里登记。\nresources/base/element/string.json：模块字符串（module_desc / EntryAbility_desc / EntryAbility_label）。')
+        this.InfoCard('④ 页面结构搭建',
+          'entryability/EntryAbility.ets：应用入口 Ability（一般不动）。\npages/Index.ets：日志 HAP 的主页面，负责展示列表、输入区、状态提示等核心 UI。\nresources/base/profile/main_pages.json：路由页面清单，新增页面要在这里登记。')
 
-        this.InfoCard('⑤ 签名材料与构建脚本',
-          'signing/：p12 / pem / profile 等签名材料，用于把 HAP 打包成可安装包（注意别提交真实密钥）。\n工程级 build-profile.json5 与 hvigor 脚手架负责构建流程，一般不动。')
+        this.InfoCard('⑤ 日志功能实现',
+          '围绕日志条目的新增、展示、筛选和状态反馈梳理 ArkTS 状态变量、事件处理与组件布局。这里开始从"看见设计好的样子"过渡到"理解它是怎么被写出来的"。')
 
-        this.InfoCard('⑥ 哪些文件不要随意改',
-          'build-profile.json5、hvigor*、oh-package.json5、package.json、signing/ 内容、EntryAbility.ets——改这些容易破坏编译/签名。除非明确需要，否则别碰。')
+        this.InfoCard('⑥ 构建签名与部署',
+          'signing/、build-profile.json5、hvigor 脚手架和安装启动脚本负责把日志 HAP 打包成可运行应用。后续流程会继续讲清楚编译、签名、安装和启动的边界。')
 
         if (this.teachingReady) {
-          Text('讲师身份已就位，可点击下方让 OpenClaw 讲解文件准备。')
+          Text('讲师身份已就位，可点击下方让 OpenClaw 按流程讲解日志 HAP。')
             .fontSize(11)
             .fontColor('#a6e3a1')
             .margin({ top: 2, bottom: 8 })
@@ -106,7 +106,7 @@ export struct TeachingPathView {
             .alignSelf(ItemAlign.Start)
         }
 
-        Button(this.teachingBusy ? 'OpenClaw 正在处理...' : '让 OpenClaw 详解文件准备')
+        Button(this.teachingBusy ? 'OpenClaw 正在处理...' : '让 OpenClaw 详解开发流程')
           .width('100%')
           .height(36)
           .fontSize(12)

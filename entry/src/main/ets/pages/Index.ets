@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
+import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -479,7 +479,7 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
-    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日程 HAP 课程讲师身份'));
+    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日志 HAP 课程讲师身份'));
     this.openClawBusy = true;
     try {
       await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
@@ -505,7 +505,7 @@ struct Index {
     }
   }
 
-  async explainScheduleFilePrep(): Promise<void> {
+  async explainLogHapFlow(): Promise<void> {
     if (!this.teachingReady) {
       promptAction.showToast({
         message: '请先初始化讲师身份。',
@@ -523,12 +523,12 @@ struct Index {
     let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
-    this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
+    this.chatMessages.push(new ChatMessage('user', '【教学之路·开发流程】请详解日志 HAP 的开发流程'));
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     try {
-      await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
+      await this.client.startTurn(buildLogHapFlowPrompt(), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
       }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
@@ -1145,7 +1145,7 @@ struct Index {
                       teachingBusy: this.openClawBusy,
                       onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
-                      onExplainWithOpenClaw: () => { this.explainScheduleFilePrep(); }
+                      onExplainWithOpenClaw: () => { this.explainLogHapFlow(); }
                     })
                   } else if (this.advancedScreen === 'freedev') {
                     FreeDevView({
