@@ -356,7 +356,9 @@ export class OpenClawClient {
 
   // 发起一轮对话/任务：连接 -> 建会话 -> 触发占位回调 -> 发送消息。
   // 返回的 Promise 在收到 chat 'final' 事件后由 completeTurn 解析。
-  startTurn(message: string, onPlaceholder: () => void, agentId: string = ''): Promise<string> {
+  // onSent：chat.send 收到网关成功响应（消息已发送并被 OpenClaw 接收）后回调，
+  // 供页面把加载动画从「发送中/接收中」切到「OpenClaw 正在回复」阶段。
+  startTurn(message: string, onPlaceholder: () => void, agentId: string = '', onSent: () => void = () => {}): Promise<string> {
     // 同步捕获发起时的代际：后续任一 await 之后若被重置，立刻终止，不再用旧 session 发旧提示词。
     let epoch = this.resetEpoch;
     return new Promise(async (resolve, reject) => {
@@ -390,6 +392,8 @@ export class OpenClawClient {
         } catch (parseErr) {
           // 解析失败就保留本地生成的 runId。
         }
+        // 消息已成功送达网关并被 OpenClaw 接收：通知页面切到「正在回复」阶段。
+        onSent();
       } catch (e) {
         // 仅当仍是当前代际才清共享回调：避免清掉 reset 之后新一轮已注册的回调。
         if (epoch === this.resetEpoch) {
