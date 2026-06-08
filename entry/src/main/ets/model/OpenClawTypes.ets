@@ -1,12 +1,28 @@
 // OpenClaw 数据模型与 RPC 协议类型
 // 从 pages/Index.ets 抽取，集中管理对话消息与 OpenClaw 网关 RPC 报文结构。
 
+// 对话消息。kind 决定富展示样式：
+//   'text'       普通文本气泡（用户/助手）
+//   'thinking'   OpenClaw 思考过程（暗色折叠块）
+//   'toolCall'   OpenClaw 调用工具（read/exec 等，显示工具名 + 参数摘要）
+//   'toolResult' 工具返回结果（等宽，可折叠，出错标红）
+// toolName/toolArgs/isError 仅在工具相关 kind 使用；collapsed 控制长内容默认折叠。
 export class ChatMessage {
   sender: string = '';
   text: string = '';
-  constructor(sender: string, text: string) {
+  kind: string = 'text';
+  toolName: string = '';
+  toolArgs: string = '';
+  isError: boolean = false;
+  collapsed: boolean = true;
+  constructor(sender: string, text: string, kind: string = 'text',
+      toolName: string = '', toolArgs: string = '', isError: boolean = false) {
     this.sender = sender;
     this.text = text;
+    this.kind = kind;
+    this.toolName = toolName;
+    this.toolArgs = toolArgs;
+    this.isError = isError;
   }
 }
 

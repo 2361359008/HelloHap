@@ -36,6 +36,12 @@ export class OpenClawClient {
   // 流式 chat 事件回调，由页面注入，用于更新对话 UI 状态。
   onChatEvent: (payload: Record<string, Object>) => void = () => {};
 
+  // 非 chat 的网关事件回调（诊断用）。我们连接时声明了 caps:['tool-events']，
+  // 网关可能以独立 event 名（如 tool/toolCall/thinking）实时下发工具步骤，
+  // 但旧逻辑只路由 event==='chat'、其余被丢弃。这里转发出去由页面记入日志，
+  // 以便确认是否存在可用于真正实时展示的事件流（若有则可替代 chat.history 轮询）。
+  onGatewayEvent: (eventName: string, payload: Record<string, Object>) => void = () => {};
+
   async requestText(url: string, method: http.RequestMethod, body: string = '', headers: Record<string, string> = {}): Promise<string> {
     let client = http.createHttp();
     try {
@@ -218,6 +224,9 @@ export class OpenClawClient {
             this.activeRunId = String(payload['runId']);
           }
           this.onChatEvent(payload);
+        } else if (eventName && payload) {
+          // 非 chat 事件：转发供页面记入日志（诊断是否存在实时工具事件流）。
+          this.onGatewayEvent(eventName, payload);
         }
       }
     } catch (e) {
@@ -413,6 +422,20 @@ export class OpenClawClient {
       this.agentTurnResolve = null;
       this.agentTurnReject = null;
     }
+  }
+
+  // 拉取当前会话完整历史的原始响应（含 thinking/toolCall/toolResult 富内容块），
+  // 供页面在一轮结束后解析并在对话区渲染「思考→工具→结果→最终」完整过程。
+  // 原生流（delta/final）只下发助手可见文本、不含工具步骤，故富展示需走 chat.history。
+  // 若期间课程被重置（代际变化）则抛 'Course reset'，由调用方放弃，不污染新课程对话。
+  async fetchHistoryRaw(): Promise<string> {
+    if (!this.sessionKey) {
+      return '';
+    }
+    let epoch = this.resetEpoch;
+    let res = await this.sendRpcRequest('chat.history', new OpenClawHistoryParams(this.sessionKey), epoch);
+    this.ensureEpoch(epoch);
+    return res;
   }
 
   // 由页面在收到 chat 'error'/'aborted' 事件时调用，拒绝当前对话轮次。

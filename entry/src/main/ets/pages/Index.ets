@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { buildTeachingIdentityPrompt, buildScheduleFilePrepPrompt, TEACHING_AGENT_ID } from '../model/TeachingContent';
+import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
@@ -85,6 +85,7 @@ struct Index {
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
+  @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
   // OpenClaw 一开始返回内容（首个流式事件）就立即关闭，不等整轮跑完。
   @State projectInitOverlayVisible: boolean = false;
@@ -94,13 +95,35 @@ struct Index {
   // 处理遮罩的两个阶段：'sending'=对话发送/网关接收中；'replying'=已被 OpenClaw 接收、正在生成回复。
   // chat.send 成功响应（onSent 回调）时从 sending 切到 replying，让加载更动态。
   @State aiProcessingPhase: string = 'sending';
+  // 诊断用：记录本轮已采集过的 chat 事件形态，避免重复刷屏；每轮结束后清空。
+  private seenChatEventShapes: Set<string> = new Set();
   // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
   // restoreAdvancedProject() 等 await 返回后校验，若已被重置则放弃启动旧流程。
   private courseEpoch: number = 0;
 
+  // 实时富展示：一轮进行中轮询 chat.history，把已产生的 思考/工具/结果 实时渲染到对话区。
+  // historyPollActive 控制轮询循环；turnRichActive 标记本轮已被富展示接管（接管后忽略 delta 纯文本）。
+  private historyPollActive: boolean = false;
+  private turnRichActive: boolean = false;
+  private historyShapeLogged: boolean = false;
+
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
       this.handleChatStreamEvent(payload);
+    };
+    // 诊断：把非 chat 的网关事件名按形态首次出现记入日志（每轮去重），
+    // 用于判断网关是否实时下发工具/思考事件（若有则可改为事件驱动的实时展示）。
+    this.client.onGatewayEvent = (eventName: string, payload: Record<string, Object>) => {
+      let shape = 'gw:' + eventName + ':' + Object.keys(payload).sort().join(',');
+      if (this.seenChatEventShapes.has(shape)) {
+        return;
+      }
+      this.seenChatEventShapes.add(shape);
+      let dump = JSON.stringify(payload);
+      if (dump.length > 600) {
+        dump = dump.substring(0, 600) + '…';
+      }
+      this.currentExecutionLog += '[gwevent ' + eventName + '] ' + dump + '\n';
     };
   }
 
@@ -232,6 +255,19 @@ struct Index {
     if (this.aiProcessingOverlayVisible) {
       this.aiProcessingOverlayVisible = false;
     }
+
+    // 诊断采集：把本轮里每一种「形态」（state + 顶层字段集合）首次出现的原始事件
+    // 原样写入 OpenClaw 日志，便于据此精确实现思考/工具调用/工具结果的富展示。
+    let shapeKey = String(payload['state']) + '|' + Object.keys(payload).sort().join(',');
+    if (!this.seenChatEventShapes.has(shapeKey)) {
+      this.seenChatEventShapes.add(shapeKey);
+      let dump = JSON.stringify(payload);
+      if (dump.length > 2000) {
+        dump = dump.substring(0, 2000) + '…(截断)';
+      }
+      this.currentExecutionLog += '[event] ' + dump + '\n';
+    }
+
     let state = payload['state'] as string;
     let text = '';
 
@@ -242,6 +278,14 @@ struct Index {
     }
 
     if (state === 'delta') {
+      // 首个 delta 即开始轮询 chat.history，实时把 思考/工具/结果 渲染到对话区。
+      if (!this.historyPollActive) {
+        this.startHistoryPolling(this.courseEpoch);
+      }
+      // 已被富展示接管：纯文本由轮询/最终补全，跳过以免与分段气泡相互覆盖闪烁。
+      if (this.turnRichActive) {
+        return;
+      }
       if (this.chatMessages.length > 0) {
         let lastMsg = this.chatMessages[this.chatMessages.length - 1];
         if (lastMsg.sender === 'assistant') {
@@ -256,29 +300,40 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }
     } else if (state === 'final') {
+      this.stopHistoryPolling();
       // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
       // 若已有实质过程文案则保留并补一句「已完成」；否则给一句明确的完成提示。
       let trimmedFinal = text.trim();
       let isEmptyFinal = (trimmedFinal === '' || trimmedFinal === 'NO_REPLY');
       let fallbackFinal = '已执行完成，但本轮未返回文字总结。可在「工作区」查看改动的代码与编译/安装结果。';
-      if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
-        let lastMsg = this.chatMessages[this.chatMessages.length - 1];
-        if (!isEmptyFinal) {
-          lastMsg.text = text;
-        } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
-          lastMsg.text = fallbackFinal;
+      // 富展示已接管时，对话区由 history 分段驱动，不再改纯文本气泡（否则会覆盖分段）。
+      if (!this.turnRichActive) {
+        if (this.chatMessages.length > 0 && this.chatMessages[this.chatMessages.length - 1].sender === 'assistant') {
+          let lastMsg = this.chatMessages[this.chatMessages.length - 1];
+          if (!isEmptyFinal) {
+            lastMsg.text = text;
+          } else if (this.isPlaceholderOrEmpty(lastMsg.text)) {
+            lastMsg.text = fallbackFinal;
+          } else {
+            lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
+          }
         } else {
-          lastMsg.text = lastMsg.text + '\n\n（本轮已执行完成。）';
+          this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
         }
-      } else {
-        this.chatMessages.push(new ChatMessage('assistant', isEmptyFinal ? fallbackFinal : text));
+        this.chatMessages = [...this.chatMessages];
       }
-      this.chatMessages = [...this.chatMessages];
 
       this.client.completeTurn(isEmptyFinal ? fallbackFinal : text);
       this.studentQuestionEnabled = true;
       this.openClawBusy = false;
+      this.seenChatEventShapes.clear();
+
+      // 收尾再拉一次历史，补齐完整过程与最终回复；持久化可能略有延迟，1.2s 后再补一次。
+      let finalEpoch = this.courseEpoch;
+      this.enrichTurnFromHistory(finalEpoch);
+      setTimeout(() => { this.enrichTurnFromHistory(finalEpoch); }, 1200);
     } else if (state === 'error' || state === 'aborted') {
+      this.stopHistoryPolling();
       let errorMsg = 'OpenClaw 调用失败/中断';
       if (payload['error']) {
         errorMsg = 'OpenClaw 错误: ' + String(payload['error']);
@@ -288,6 +343,7 @@ struct Index {
       
       this.client.failTurn(new Error(errorMsg));
       this.openClawBusy = false;
+      this.seenChatEventShapes.clear();
     }
   }
 
@@ -299,6 +355,236 @@ struct Index {
       return true;
     }
     return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
+  }
+
+  // 开始/停止本轮的 chat.history 轮询（递归 setTimeout，避免请求重叠）。
+  private startHistoryPolling(epoch: number): void {
+    if (this.historyPollActive) {
+      return;
+    }
+    this.historyPollActive = true;
+    this.turnRichActive = false;
+    this.historyShapeLogged = false;
+    this.scheduleHistoryPoll(epoch);
+  }
+
+  private stopHistoryPolling(): void {
+    this.historyPollActive = false;
+  }
+
+  private scheduleHistoryPoll(epoch: number): void {
+    setTimeout(() => {
+      if (!this.historyPollActive || epoch !== this.courseEpoch) {
+        return;
+      }
+      this.applyHistoryToTurn(epoch).then(() => {
+        if (this.historyPollActive && epoch === this.courseEpoch) {
+          this.scheduleHistoryPoll(epoch);
+        }
+      }).catch(() => {
+        if (this.historyPollActive && epoch === this.courseEpoch) {
+          this.scheduleHistoryPoll(epoch);
+        }
+      });
+    }, 1500);
+  }
+
+  // final 收尾时再拉一次历史，补齐完整过程与最终回复（与轮询共用同一渲染逻辑）。
+  private async enrichTurnFromHistory(epoch: number): Promise<void> {
+    await this.applyHistoryToTurn(epoch);
+  }
+
+  // 拉取会话历史，把本轮（历史里最后一条 user 之后的所有消息）解析成
+  // 「思考 / 工具调用 / 工具返回 / 文本」分段，替换对话区里本轮的纯文本助手气泡，
+  // 呈现与 WebUI 类似的实时过程。任何异常或课程被重置都静默放弃，保留已显示的纯文本。
+  private async applyHistoryToTurn(epoch: number): Promise<void> {
+    try {
+      let raw = await this.client.fetchHistoryRaw();
+      if (epoch !== this.courseEpoch || !raw) {
+        return;
+      }
+      let payload = JSON.parse(raw) as Record<string, Object>;
+      let messages = this.extractHistoryMessages(payload);
+      // 诊断：每轮仅首次记录历史响应结构，便于核对/排错（截图即可），不刷屏。
+      if (!this.historyShapeLogged) {
+        this.historyShapeLogged = true;
+        this.currentExecutionLog += '[history] msgs=' + messages.length.toString()
+          + ' keys=' + Object.keys(payload).sort().join(',') + '\n';
+      }
+      if (messages.length === 0) {
+        return;
+      }
+      // 持久化时序守卫：历史里的 user 条数 < 对话区 user 气泡数，说明本轮还没写入历史，
+      // 此时套用会错把上一轮内容贴到当前轮，故跳过等待下次轮询。
+      let histUsers = 0;
+      for (let i = 0; i < messages.length; i++) {
+        if (String(messages[i]['role']) === 'user') {
+          histUsers++;
+        }
+      }
+      let uiUsers = 0;
+      for (let i = 0; i < this.chatMessages.length; i++) {
+        if (this.chatMessages[i].sender === 'user') {
+          uiUsers++;
+        }
+      }
+      if (histUsers < uiUsers) {
+        return;
+      }
+      let segments = this.buildTurnSegments(messages);
+      if (segments.length === 0) {
+        return;
+      }
+      let lastUserIdx = -1;
+      for (let i = this.chatMessages.length - 1; i >= 0; i--) {
+        if (this.chatMessages[i].sender === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      let head: Array<ChatMessage> = lastUserIdx >= 0
+        ? this.chatMessages.slice(0, lastUserIdx + 1)
+        : this.chatMessages.slice(0, this.chatMessages.length);
+      this.chatMessages = head.concat(segments);
+      // 标记本轮已被富展示接管：后续 delta 不再写纯文本气泡。
+      this.turnRichActive = true;
+    } catch (e) {
+      // 静默：富展示是增强项，失败不影响已显示的最终回复。
+    }
+  }
+
+  // 从 chat.history 响应里取出消息数组，兼容多种封装：
+  // 顶层 messages/items/events/history/log/entries 任一为数组即可；
+  // 数组元素兼容 {type:'message', message:{role,content,...}} 与直接 {role,content,...} 两种。
+  private extractHistoryMessages(payload: Record<string, Object>): Array<Record<string, Object>> {
+    let arr: Array<Object> | null = null;
+    let candidates: Array<string> = ['messages', 'items', 'events', 'history', 'log', 'entries'];
+    for (let i = 0; i < candidates.length; i++) {
+      let v = payload[candidates[i]];
+      if (Array.isArray(v)) {
+        arr = v as Array<Object>;
+        break;
+      }
+    }
+    let out: Array<Record<string, Object>> = [];
+    if (!arr) {
+      return out;
+    }
+    for (let i = 0; i < arr.length; i++) {
+      let rec = arr[i] as Record<string, Object>;
+      if (!rec) {
+        continue;
+      }
+      if (rec['message'] && typeof rec['message'] === 'object') {
+        out.push(rec['message'] as Record<string, Object>);
+      } else if (rec['role']) {
+        out.push(rec);
+      }
+    }
+    return out;
+  }
+
+  // 取历史里最后一条 user 之后的消息，逐条按内容块拆成富展示分段。
+  private buildTurnSegments(messages: Array<Record<string, Object>>): Array<ChatMessage> {
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (String(messages[i]['role']) === 'user') {
+        lastUser = i;
+        break;
+      }
+    }
+    let start = lastUser >= 0 ? lastUser + 1 : 0;
+    let segs: Array<ChatMessage> = [];
+    for (let i = start; i < messages.length; i++) {
+      let m = messages[i];
+      let role = String(m['role']);
+      if (role === 'toolResult') {
+        let toolName = m['toolName'] ? String(m['toolName']) : 'tool';
+        let isErr = (m['isError'] ? String(m['isError']) === 'true' : false);
+        let resText = this.extractBlockText(m['content']);
+        segs.push(new ChatMessage('assistant', resText, 'toolResult', toolName, '', isErr));
+      } else if (role === 'assistant') {
+        let content = m['content'];
+        if (Array.isArray(content)) {
+          let blocks = content as Array<Object>;
+          for (let j = 0; j < blocks.length; j++) {
+            let b = blocks[j] as Record<string, Object>;
+            if (!b) {
+              continue;
+            }
+            let bt = String(b['type']);
+            if (bt === 'thinking') {
+              let th = b['thinking'] ? String(b['thinking']) : '';
+              if (th.trim() !== '') {
+                segs.push(new ChatMessage('assistant', th, 'thinking'));
+              }
+            } else if (bt === 'text') {
+              let tx = b['text'] ? String(b['text']) : '';
+              if (tx.trim() !== '') {
+                segs.push(new ChatMessage('assistant', tx, 'text'));
+              }
+            } else if (bt === 'toolCall') {
+              let name = b['name'] ? String(b['name']) : 'tool';
+              let argSummary = this.summarizeToolArgs(b['arguments']);
+              segs.push(new ChatMessage('assistant', '', 'toolCall', name, argSummary));
+            }
+          }
+        } else {
+          let tx = this.extractBlockText(content);
+          if (tx.trim() !== '') {
+            segs.push(new ChatMessage('assistant', tx, 'text'));
+          }
+        }
+      }
+    }
+    return segs;
+  }
+
+  // 从内容数组/字符串里拼出纯文本（用于 user/toolResult 的 text 块）。
+  private extractBlockText(content: Object | undefined): string {
+    if (!content) {
+      return '';
+    }
+    if (typeof content === 'string') {
+      return content as string;
+    }
+    if (Array.isArray(content)) {
+      let arr = content as Array<Object>;
+      let parts: Array<string> = [];
+      for (let i = 0; i < arr.length; i++) {
+        let b = arr[i] as Record<string, Object>;
+        if (b && b['type'] === 'text' && b['text']) {
+          parts.push(String(b['text']));
+        } else if (typeof arr[i] === 'string') {
+          parts.push(arr[i] as string);
+        }
+      }
+      return parts.join('');
+    }
+    return '';
+  }
+
+  // 把工具参数压成一行摘要：exec 显示命令、read 显示路径(+offset/limit)，其它回退紧凑 JSON。
+  private summarizeToolArgs(args: Object | undefined): string {
+    if (!args || typeof args !== 'object') {
+      return '';
+    }
+    let a = args as Record<string, Object>;
+    if (a['command']) {
+      return String(a['command']);
+    }
+    if (a['path']) {
+      let p = String(a['path']);
+      if (a['offset'] && a['limit']) {
+        return p + '  (offset ' + String(a['offset']) + ', limit ' + String(a['limit']) + ')';
+      }
+      return p;
+    }
+    let s = JSON.stringify(a);
+    if (s.length > 200) {
+      s = s.substring(0, 200) + '…';
+    }
+    return s;
   }
 
   async sendChatMessage() {
@@ -479,7 +765,7 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
-    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日程 HAP 课程讲师身份'));
+    this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日志 HAP 课程讲师身份'));
     this.openClawBusy = true;
     try {
       await this.client.startTurn(buildTeachingIdentityPrompt(), () => {
@@ -505,7 +791,7 @@ struct Index {
     }
   }
 
-  async explainScheduleFilePrep(): Promise<void> {
+  async enterNextLogHapFlow(): Promise<void> {
     if (!this.teachingReady) {
       promptAction.showToast({
         message: '请先初始化讲师身份。',
@@ -520,15 +806,25 @@ struct Index {
       });
       return;
     }
+    let previousStep = this.teachingFlowStep;
+    let nextStep = previousStep + 1;
+    if (nextStep >= 6) {
+      promptAction.showToast({
+        message: '日志 HAP 开发教学流程已完成。',
+        duration: 1800
+      });
+      return;
+    }
     let epoch = this.courseEpoch;
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
-    this.chatMessages.push(new ChatMessage('user', '【教学之路·第一关】请详解日程 HAP 的项目文件准备'));
+    this.teachingFlowStep = nextStep;
+    this.chatMessages.push(new ChatMessage('user', '【教学之路·开发流程】请讲解：' + getLogHapFlowChatTitle(nextStep)));
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     try {
-      await this.client.startTurn(buildScheduleFilePrepPrompt(), () => {
+      await this.client.startTurn(buildLogHapFlowPrompt(nextStep), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
       }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
@@ -540,7 +836,8 @@ struct Index {
         return;
       }
       let message = (error as Error).message;
-      this.currentExecutionLog += '[openclaw] teaching file-prep failed: ' + message + '\n';
+      this.teachingFlowStep = previousStep;
+      this.currentExecutionLog += '[openclaw] teaching flow step failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
       this.openClawBusy = false;
     }
@@ -551,6 +848,8 @@ struct Index {
     // 代际已变而放弃继续启动旧流程（如已被重置后才返回的 restoreAdvancedProject）。
     this.courseEpoch++;
     this.client.reset();
+    this.stopHistoryPolling();
+    this.turnRichActive = false;
 
     this.selectedTaskIndex = 0;
     this.maxUnlockedLevel = 1;
@@ -574,6 +873,7 @@ struct Index {
     this.freeDevReady = false;
     this.advancedScreen = 'menu';
     this.teachingReady = false;
+    this.teachingFlowStep = 0;
     this.projectInitOverlayVisible = false;
     this.aiProcessingOverlayVisible = false;
     this.advancedFiles = [];
@@ -1143,9 +1443,11 @@ struct Index {
                     TeachingPathView({
                       teachingReady: this.teachingReady,
                       teachingBusy: this.openClawBusy,
+                      teachingFlowStep: this.teachingFlowStep,
+                      teachingFlowTotal: 6,
                       onBack: () => { this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
-                      onExplainWithOpenClaw: () => { this.explainScheduleFilePrep(); }
+                      onEnterNextFlow: () => { this.enterNextLogHapFlow(); }
                     })
                   } else if (this.advancedScreen === 'freedev') {
                     FreeDevView({
