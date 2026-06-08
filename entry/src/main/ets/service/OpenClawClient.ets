@@ -59,6 +59,10 @@ export class OpenClawClient {
         return;
       }
       this.ws = webSocket.createWebSocket();
+      // 记住本次创建的 socket 实例。reset()/重连后 this.ws 会指向新实例，
+      // 旧 socket 仍可能投递上一轮会话的残留事件——用实例比对把它们全部丢弃，
+      // 避免「重置后再进自由发挥，旧会话事件污染新会话」的竞态。
+      let socket = this.ws;
       let hasResolved = false;
 
       this.ws.on('open', (err: Object) => {
@@ -84,6 +88,11 @@ export class OpenClawClient {
       });
 
       this.ws.on('message', (err: Object, value: string | ArrayBuffer) => {
+        // 丢弃来自已被取代/关闭的旧 socket 的消息：它们属于上一轮会话，
+        // 若放行会错误地解析为当前会话的事件（提前关遮罩、提前结束新轮次）。
+        if (socket !== this.ws) {
+          return;
+        }
         if (err) {
           console.error('WebSocket message error: ' + JSON.stringify(err));
           return;
@@ -361,7 +370,13 @@ export class OpenClawClient {
     this.sessionId = '';
     this.sessionKey = '';
     this.currentAgentId = '';
+    // 若重置时正有一轮对话在途，必须显式 reject 它，让等待 startTurn 的调用方
+    // （如 initFreeDevIdentity）解开挂起、复位 openClawBusy；否则会留下「卡在上一轮」的僵态。
+    let pendingReject = this.agentTurnReject;
     this.agentTurnResolve = null;
     this.agentTurnReject = null;
+    if (pendingReject) {
+      pendingReject(new Error('Course reset'));
+    }
   }
 }
