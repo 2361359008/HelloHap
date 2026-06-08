@@ -15,8 +15,9 @@ export const TEACHING_PROJECT_ROOT: string = '/data/local/tmp/advanced-hapbuild/
 
 // 进入「教学之路」时发送的简短问候：会话已绑定讲师 agent，这里只让它用一句话确认身份。
 // 不再执行 set-identity（该命令只改昵称/头像，不切行为）；身份由讲师 agent 工作区文件决定。
+// 精简为一行，尽量让 OpenClaw 这一轮少处理内容；「只讲解不改文件」由讲师 agent 工作区人格约束。
 export function buildTeachingIdentityPrompt(): string {
-  return `你好，请用一句话确认你当前的身份和职责，然后回复「日志 HAP 课程讲师身份已就位，可以开始开发流程讲解」。在学员未明确要求前，只讲解、不改动任何工程文件。`;
+  return `你好，请用一句话确认你当前的身份。`;
 }
 
 export function getLogHapFlowChatTitle(step: number): string {
