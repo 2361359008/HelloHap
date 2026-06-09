@@ -119,11 +119,6 @@ struct Index {
   private historyPollGen: number = 0;
   private turnRichActive: boolean = false;
   private historyShapeLogged: boolean = false;
-  // 兜底完成判定：网关偶尔不下发 chat 'final' 事件，导致最终回复已显示却一直转圈。
-  // 轮询时记录本轮分段「签名」，若最后一段已是助手文本回复且连续多次轮询无变化，
-  // 即判定一轮结束、清掉忙态（避免无限转圈）。lastTurnSignature/stableTurnPolls 每轮重置。
-  private lastTurnSignature: string = '';
-  private stableTurnPolls: number = 0;
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -330,8 +325,6 @@ struct Index {
       || state === 'done' || state === 'end' || state === 'finished') {
       this.stopHistoryPolling();
       this.aiProcessingOverlayVisible = false;
-      this.lastTurnSignature = '';
-      this.stableTurnPolls = 0;
       // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
       // 若已有实质过程文案则保留并补一句「已完成」；否则给一句明确的完成提示。
       let trimmedFinal = text.trim();
@@ -366,8 +359,6 @@ struct Index {
     } else if (state === 'error' || state === 'aborted') {
       this.stopHistoryPolling();
       this.aiProcessingOverlayVisible = false;
-      this.lastTurnSignature = '';
-      this.stableTurnPolls = 0;
       let errorMsg = 'OpenClaw 调用失败/中断';
       if (payload['error']) {
         errorMsg = 'OpenClaw 错误: ' + String(payload['error']);
@@ -416,14 +407,13 @@ struct Index {
   private startHistoryPolling(epoch: number): void {
     // 强制重启：自增代次令任何在途的旧循环失效，再起一个干净的新循环。
     // 即使网关本轮不下发 chat delta/final 事件，也能靠 chat.history 渲染富集内容、
-    // 关闭全屏遮罩并在内容稳定后主动收尾，避免「最终回复已出还一直转圈」。
+    // 关闭全屏遮罩；但忙态（openClawBusy/顶部「AI 正在处理」/发送键）只由真实终态事件
+    // （chat final/complete/done/end/finished 或 error/aborted）清除，不再因历史文本稳定就提前解锁。
     this.historyPollGen++;
     let gen = this.historyPollGen;
     this.historyPollActive = true;
     this.turnRichActive = false;
     this.historyShapeLogged = false;
-    this.lastTurnSignature = '';
-    this.stableTurnPolls = 0;
     this.scheduleHistoryPoll(epoch, gen);
   }
 
@@ -518,36 +508,12 @@ struct Index {
       if (this.projectInitOverlayVisible) {
         this.projectInitOverlayVisible = false;
       }
-
-      // 兜底完成判定：最后一段已是助手文本回复，且连续多次轮询本轮内容无变化，
-      // 说明网关大概率已结束本轮但未下发 chat 'final' 事件——主动收尾，避免一直转圈。
-      let lastSeg = segments[segments.length - 1];
-      let sig = segments.length.toString() + '|' + lastSeg.kind + '|'
-        + (lastSeg.text ? lastSeg.text.length.toString() : '0');
-      if (sig === this.lastTurnSignature) {
-        this.stableTurnPolls++;
-      } else {
-        this.lastTurnSignature = sig;
-        this.stableTurnPolls = 0;
-      }
-      if (this.openClawBusy && lastSeg.kind === 'text' && this.stableTurnPolls >= 2) {
-        this.finishTurnFromHistory(lastSeg.text);
-      }
+      // 注意：不在此处依据「历史文本稳定」判定整轮结束。openClawBusy（发送键忙态 +
+      // 顶部「AI 正在处理」）必须保持到收到真实终态事件，避免长编译/工具等待/阶段性
+      // 总结期间发送入口被提前解锁。
     } catch (e) {
       // 静默：富展示是增强项，失败不影响已显示的最终回复。
     }
-  }
-
-  // 兜底收尾：未收到 chat 'final' 事件，但历史已稳定在助手文本回复时调用，
-  // 停轮询、解析 startTurn、清掉忙态，效果等同正常的 final 收尾。
-  private finishTurnFromHistory(finalText: string): void {
-    this.stopHistoryPolling();
-    this.lastTurnSignature = '';
-    this.stableTurnPolls = 0;
-    this.client.completeTurnFromHistory(finalText);
-    this.studentQuestionEnabled = true;
-    this.openClawBusy = false;
-    this.seenChatEventShapes.clear();
   }
 
   // 从 chat.history 响应里取出消息数组，兼容多种封装：
