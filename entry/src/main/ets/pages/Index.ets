@@ -1066,6 +1066,17 @@ struct Index {
       return;
     }
     let preset = project.presets[index];
+    // 随心新建·等首句目标：模板提示词只「填入输入框」作为开发目标，由用户确认/编辑后发送，
+    // 走 sendChatMessage 的首句目标分支（buildBlankGoalPrompt + 项目创建中遮罩）。
+    if (this.blankAwaitingGoal && this.multiDevProjectId === 'blank') {
+      if (this.openClawBusy) {
+        promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+        return;
+      }
+      this.chatInput = preset.prompt;
+      promptAction.showToast({ message: '已填入开发目标，可编辑后点发送。', duration: 1600 });
+      return;
+    }
     if (!this.freeDevReady) {
       promptAction.showToast({
         message: '请先初始化开发身份。',
@@ -2237,6 +2248,7 @@ struct Index {
                       projectId: this.multiDevProjectId,
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
+                      blankAwaitingGoal: this.blankAwaitingGoal,
                       onReinitIdentity: () => { this.initMultiDevIdentity(this.currentMultiDevProject()); },
                       onSendPreset: (index: number) => { this.sendMultiDevPreset(index); }
                     })
