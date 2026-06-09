@@ -102,6 +102,12 @@ export const MINESWEEPER_PROJECT: MultiDevProject = new MultiDevProject(
   [
     new MultiDevPrompt('一句话改造：顶部显示「剩余雷数」',
       '请只修改扫雷工程的 entry/src/main/ets/pages/Index.ets，在顶部信息栏（笑脸/计时附近）新增一处「剩余雷数」显示，数值＝总雷数 − 已插旗数（复用现有 flagCount 状态），不改扫雷核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh 编译装板，并把改动回贴给我。',
+      '#f38ba8'),
+    new MultiDevPrompt('一句话改造：胜负弹层显示本局用时',
+      '请只修改扫雷工程的 entry/src/main/ets/pages/Index.ets，在游戏结束的结算弹层（status===1 胜利 / status===2 踩雷那块）里新增一行「本局用时 X 秒」，X 复用现有计时状态 elapsed，不改扫雷核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh 编译装板，并把改动回贴给我。',
+      '#f38ba8'),
+    new MultiDevPrompt('一句话改造：插旗格子高亮为红色',
+      '请只修改扫雷工程的 entry/src/main/ets/pages/Index.ets，让已插旗的格子（flags[r][c] 为 true）背景或文字用醒目的红色高亮，未插旗保持原样，仅调整格子渲染的配色（参考现有 cellText / 格子样式写法），不改扫雷核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh 编译装板，并把改动回贴给我。',
       '#f38ba8')
   ]
 );
@@ -120,7 +126,19 @@ export const BLANK_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/assemble_deploy.sh',
   '欢迎来到随心自由开发界面。当前是你选中的空白工程副本（每个工程相互独立、永久保留）。没有任何预设功能，请尽情发挥想象，把你想要的应用和 AI 助手一起从零开发出来。',
   '只在「当前激活的这个工程副本目录」里改 entry/src/main/ets/pages/Index.ets，绝不动只读模板 template/、绝不删别的工程副本。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。改完用万能脚本 assemble_deploy.sh <当前工程目录> 出包上板。',
-  []
+  // 随心新建：以下 3 条是「开发目标模板」——点击会填入下方输入框作为你的第一句话（开发目标），
+  // 可直接发送或编辑后发送，再由 AI 校验并创建工程。prompt 即作为目标原文填入。
+  [
+    new MultiDevPrompt('模板：做一个待办清单 HAP',
+      '做一个待办清单 HAP：能输入并添加待办、点击条目勾选完成（带删除线），可删除条目，列表实时刷新。',
+      '#a6e3a1'),
+    new MultiDevPrompt('模板：做一个秒表计时器 HAP',
+      '做一个秒表计时器 HAP：有「开始/暂停/清零」按钮，居中大字显示 分:秒.毫秒，计时实时刷新。',
+      '#a6e3a1'),
+    new MultiDevPrompt('模板：做一个本地记账 HAP',
+      '做一个本地记账 HAP：能输入金额和备注添加一条支出，列表显示每条明细，并实时合计总支出。',
+      '#a6e3a1')
+  ]
 );
 
 // 4) 视频播放器 HAP 自由开发（最小可播放基线工程 examples/video-player-hap）。
@@ -140,6 +158,12 @@ export const VIDEOPLAYER_PROJECT: MultiDevProject = new MultiDevProject(
   [
     new MultiDevPrompt('一句话改造：新增「快进 15 秒」按钮',
       '请只修改视频播放器工程的 entry/src/main/ets/pages/Index.ets，在播放控制区仿照现有按钮新增一个「快进 15 秒」按钮，点击后让播放进度在 currentTime 基础上前进 15 秒（复用现有播放控件写法），不动其它文件；改完执行 sh /data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh 编译装板，并把改动回贴给我。',
+      '#fab387'),
+    new MultiDevPrompt('一句话改造：新增「后退 15 秒」按钮',
+      '请只修改视频播放器工程的 entry/src/main/ets/pages/Index.ets，在播放控制区仿照现有「播放/暂停」按钮新增一个「后退 15 秒」按钮，点击后让播放进度在 currentTime 基础上后退 15 秒（不小于 0），并调用 controller 跳转到该时间（复用现有播放控件写法），不动其它文件；改完执行 sh /data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh 编译装板，并把改动回贴给我。',
+      '#fab387'),
+    new MultiDevPrompt('一句话改造：显示播放进度百分比',
+      '请只修改视频播放器工程的 entry/src/main/ets/pages/Index.ets，在现有「当前时间 / 总时长」文本附近新增一处播放进度百分比显示，数值＝currentTime ÷ durationTime × 100，保留整数并加「%」，durationTime 为 0 时显示 0%（复用现有 currentTime / durationTime 状态），不动其它文件；改完执行 sh /data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh 编译装板，并把改动回贴给我。',
       '#fab387')
   ]
 );
@@ -161,6 +185,12 @@ export const CALCULATOR_PROJECT: MultiDevProject = new MultiDevProject(
   [
     new MultiDevPrompt('一句话改造：新增百分号(%)按键',
       '请只修改计算器工程的 entry/src/main/ets/pages/Index.ets，仿照现有按键新增一个百分号「%」按键，按下时把当前显示数字 display 除以 100 并刷新显示（复用现有按键布局与运算写法），不动其它文件；改完执行 sh /data/local/tmp/calculator-hapbuild/build_calculator.sh 编译装板，并把改动回贴给我。',
+      '#94e2d5'),
+    new MultiDevPrompt('一句话改造：新增正负号(±)按键',
+      '请只修改计算器工程的 entry/src/main/ets/pages/Index.ets，仿照现有按键新增一个正负号「±」按键，按下时把当前显示数字 display 取相反数并刷新显示（"0" 时保持 0，复用现有 display 状态与 formatNumber 写法），不动其它文件；改完执行 sh /data/local/tmp/calculator-hapbuild/build_calculator.sh 编译装板，并把改动回贴给我。',
+      '#94e2d5'),
+    new MultiDevPrompt('一句话改造：新增退格(⌫)按键',
+      '请只修改计算器工程的 entry/src/main/ets/pages/Index.ets，仿照现有按键新增一个退格「⌫」按键，按下时删除当前显示 display 的最后一位字符，删到只剩一位或为空时显示回 "0"（复用现有 display 状态写法），不动其它文件；改完执行 sh /data/local/tmp/calculator-hapbuild/build_calculator.sh 编译装板，并把改动回贴给我。',
       '#94e2d5')
   ]
 );
@@ -182,6 +212,12 @@ export const TETRIS_PROJECT: MultiDevProject = new MultiDevProject(
   [
     new MultiDevPrompt('一句话改造：右侧信息区显示「最高分」',
       '请只修改俄罗斯方块工程的 entry/src/main/ets/pages/Index.ets，在右侧信息区（分数/等级附近）新增一处「最高分」显示，并在分数 score 刷新时同步更新最高分（新增一个 @State 保存即可），不改游戏核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/tetris-hapbuild/build_tetris.sh 编译装板，并把改动回贴给我。',
+      '#cba6f7'),
+    new MultiDevPrompt('一句话改造：右侧显示「已消除行数」',
+      '请只修改俄罗斯方块工程的 entry/src/main/ets/pages/Index.ets，在右侧信息区（分数/等级附近）新增一处「已消除行数」显示，数值复用现有 lines 状态（消行时已在累加），不改游戏核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/tetris-hapbuild/build_tetris.sh 编译装板，并把改动回贴给我。',
+      '#cba6f7'),
+    new MultiDevPrompt('一句话改造：新增「暂停/继续」按钮',
+      '请只修改俄罗斯方块工程的 entry/src/main/ets/pages/Index.ets，在操作区新增一个「暂停/继续」按钮：暂停时停止下落计时（参考现有 killTimers），继续时恢复循环（参考现有 startLoop），并用一个 @State 标记当前是否暂停以切换按钮文案，仅在游戏进行中（status===0）生效，不改其它游戏核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/tetris-hapbuild/build_tetris.sh 编译装板，并把改动回贴给我。',
       '#cba6f7')
   ]
 );
