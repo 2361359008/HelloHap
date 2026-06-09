@@ -93,6 +93,7 @@ struct Index {
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'blanklist' | 'freedev'
   @State multiDevProjectId: string = 'schedule'; // 多元开发：当前进入的工程 id
   @State multiDevReadyId: string = ''; // 多元开发：已完成身份初始化的工程 id（空=未就绪）
+  @State multiDevTopLevel: boolean = false; // 多元开发是否由首页顶层入口进入（决定「上一级」回首页还是回高级菜单）
   // 随心 A 方案：副本隔离的多工程状态。
   @State blankProjects: BlankProjectInfo[] = []; // 已有空白工程副本列表
   @State blankListLoading: boolean = false; // 工程列表加载中
@@ -1724,6 +1725,7 @@ struct Index {
       if (this.currentMode === '') {
         // === Selection & Entry Home Page ===
         HomeEntryView({
+          multiDevBusy: this.openClawBusy,
           onEnterTutorial: () => {
             this.currentMode = 'tutorial';
             this.tutorialStep = 0;
@@ -1735,8 +1737,18 @@ struct Index {
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
             this.advancedScreen = 'menu';
+            this.multiDevTopLevel = false;
             // 返回主页不等于重置：不在此清空 freeDevReady/teachingReady，
             // 再次进入高级课程时保留已初始化的身份，避免重复初始化（重置请走「重置开发」按钮）。
+          },
+          onEnterMultiDev: () => {
+            // 多元开发作为首页顶层入口：直接进多元开发工程列表（复用高级版分屏渲染）。
+            this.currentMode = 'advanced';
+            this.tutorialStep = 0;
+            this.selectedTaskIndex = 0;
+            this.workspaceTab = 0;
+            this.advancedScreen = 'multidev';
+            this.multiDevTopLevel = true;
           }
         })
 
@@ -1754,7 +1766,7 @@ struct Index {
               .onClick(() => { this.currentMode = ''; })
 
             if (this.currentMode === 'advanced' && this.advancedScreen !== 'menu') {
-              // 上一级：freedev → 多元开发列表；多元开发/教学 → 高级菜单。
+              // 上一级：freedev → 工程列表/高级菜单；多元开发列表 → 首页(顶层进入)或高级菜单；教学 → 高级菜单。
               Button('上一级')
                 .height(36)
                 .fontSize(14)
@@ -1765,10 +1777,20 @@ struct Index {
                 .enabled(!this.openClawBusy && !this.courseResetting)
                 .onClick(() => {
                   if (this.advancedScreen === 'freedev') {
-                    // 随心工程返回到其工程列表；其余工程返回多元开发列表。
-                    this.advancedScreen = this.multiDevProjectId === 'blank' ? 'blanklist' : 'multidev';
+                    if (this.multiDevProjectId === 'blank') {
+                      this.advancedScreen = 'blanklist';
+                    } else if (this.multiDevTopLevel) {
+                      this.advancedScreen = 'multidev';
+                    } else {
+                      // 高级菜单「自由开发」进来的日程工程：返回高级菜单。
+                      this.advancedScreen = 'menu';
+                    }
                   } else if (this.advancedScreen === 'blanklist') {
                     this.advancedScreen = 'multidev';
+                  } else if (this.advancedScreen === 'multidev' && this.multiDevTopLevel) {
+                    // 多元开发是首页顶层入口进来的：返回首页。
+                    this.multiDevTopLevel = false;
+                    this.currentMode = '';
                   } else {
                     this.advancedScreen = 'menu';
                   }
@@ -1885,7 +1907,7 @@ struct Index {
                     AdvancedMenuView({
                       onEnterTeaching: () => { this.enterTeaching(); },
                       freeDevBusy: this.openClawBusy,
-                      onEnterMultiDev: () => { this.enterMultiDev(); }
+                      onEnterFreeDev: () => { this.multiDevTopLevel = false; this.selectMultiDevProject('schedule'); }
                     })
                   }
 

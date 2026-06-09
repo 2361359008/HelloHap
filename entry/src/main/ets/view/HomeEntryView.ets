@@ -6,6 +6,9 @@
 export struct HomeEntryView {
   onEnterTutorial: () => void = () => {};
   onEnterAdvanced: () => void = () => {};
+  // 进入多元开发（多个可自由开发的 HAP 工程）。openclaw 处理中禁用。
+  onEnterMultiDev: () => void = () => {};
+  @Prop multiDevBusy: boolean = false;
 
   build() {
     Column() {
@@ -44,6 +47,20 @@ export struct HomeEntryView {
         .borderRadius(12)
         .margin({ bottom: 20 })
         .onClick(() => { this.onEnterAdvanced(); })
+
+      // 3. 多元开发：多个可自由开发的 HAP 工程（日程/扫雷/视频/计算器/俄罗斯方块/随心）
+      Button('多元开发')
+        .width('70%')
+        .height(56)
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .backgroundColor('#89b4fa') // Blue
+        .fontColor('#1e1e2e')
+        .borderRadius(12)
+        .margin({ bottom: 20 })
+        .enabled(!this.multiDevBusy)
+        .opacity(this.multiDevBusy ? 0.5 : 1)
+        .onClick(() => { this.onEnterMultiDev(); })
 
       // Device status indicator bar
       Row() {
