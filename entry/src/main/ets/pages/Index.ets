@@ -6,7 +6,7 @@ import { common } from '@kit.AbilityKit';
 import { ChatMessage, Conversation } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, BLANK_PROJECT, buildBlankGoalPrompt } from '../model/MultiDevContent';
+import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, buildBlankDeleteUrl, BLANK_CLEAR_ALL_URL, BLANK_PROJECT, buildBlankGoalPrompt } from '../model/MultiDevContent';
 import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
@@ -343,6 +343,23 @@ struct Index {
       this.conversations.splice(idx, 1);
     }
     this.activeConvKey = '';
+    this.persistConversations();
+  }
+
+  // 按 key 删除某条会话（不要求其为当前活动会话）；若恰为活动会话则清空活动键。
+  // 用于随心删除/清空工程时同步清掉对应 blank:<名> 会话与持久化。
+  private deleteConversationByKey(key: string): void {
+    if (!key) {
+      return;
+    }
+    for (let i = this.conversations.length - 1; i >= 0; i--) {
+      if (this.conversations[i].key === key) {
+        this.conversations.splice(i, 1);
+      }
+    }
+    if (this.activeConvKey === key) {
+      this.activeConvKey = '';
+    }
     this.persistConversations();
   }
 
@@ -1640,6 +1657,65 @@ struct Index {
     this.blankListLoading = false;
   }
 
+  // 随心 A 方案：删除单个工程副本（板端 /blank-delete 删 projects/<名>/）+ 同步清掉该副本会话，
+  // 再刷新列表。模板只读、其它副本不动。由卡片「删除」二次确认后调用。
+  async deleteBlankProject(name: string): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    if (name.length === 0) {
+      return;
+    }
+    this.blankListLoading = true;
+    try {
+      let out = await this.client.requestText(buildBlankDeleteUrl(name), http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank delete ' + name + '] ' + out + '\n';
+      // 同步清掉该副本的独立会话（持久化记录一并移除）。
+      this.deleteConversationByKey('blank:' + name);
+      promptAction.showToast({ message: '已删除工程「' + name + '」', duration: 1600 });
+    } catch (error) {
+      promptAction.showToast({
+        message: '删除失败：' + (error instanceof Error ? error.message : String(error)),
+        duration: 2200
+      });
+    }
+    this.blankListLoading = false;
+    await this.loadBlankProjects();
+  }
+
+  // 随心 A 方案：一键清空所有工程副本（板端 /blank-clear-all 清空 projects/）+ 清掉全部 blank:* 会话，
+  // 再刷新列表。模板只读不动。由「清空所有」强确认后调用。
+  async clearAllBlankProjects(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    this.blankListLoading = true;
+    try {
+      let out = await this.client.requestText(BLANK_CLEAR_ALL_URL, http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank clear-all] ' + out + '\n';
+      // 清掉所有随心副本会话（key 以 blank: 开头）。
+      for (let i = this.conversations.length - 1; i >= 0; i--) {
+        if (this.conversations[i].key.indexOf('blank:') === 0) {
+          if (this.activeConvKey === this.conversations[i].key) {
+            this.activeConvKey = '';
+          }
+          this.conversations.splice(i, 1);
+        }
+      }
+      this.persistConversations();
+      promptAction.showToast({ message: '已清空所有随心工程', duration: 1600 });
+    } catch (error) {
+      promptAction.showToast({
+        message: '清空失败：' + (error instanceof Error ? error.message : String(error)),
+        duration: 2200
+      });
+    }
+    this.blankListLoading = false;
+    await this.loadBlankProjects();
+  }
+
   // 随心新建流程：点「新建空白工程」→ 不再先 scaffold，而是直接进一条全新对话，
   // 等用户第一句话（=开发目标）。名称自动用时间戳（ASCII 安全、唯一），由 AI 校验首句后
   // 自己跑 blank_new.sh scaffold + 按目标开发 + assemble_deploy 出包。
@@ -2266,7 +2342,9 @@ struct Index {
                       blankBusy: this.openClawBusy,
                       onRefresh: () => { this.loadBlankProjects(); },
                       onContinue: (name: string) => { this.enterBlankProject(name, false); },
-                      onCreate: () => { this.createBlankProject(); }
+                      onCreate: () => { this.createBlankProject(); },
+                      onDelete: (name: string) => { this.deleteBlankProject(name); },
+                      onClearAll: () => { this.clearAllBlankProjects(); }
                     })
                   } else {
                     AdvancedMenuView({

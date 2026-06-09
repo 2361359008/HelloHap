@@ -273,6 +273,12 @@ export function buildBlankNewUrl(name: string): string {
 export function buildBlankSelectUrl(name: string): string {
   return BRIDGE + '/blank-select?name=' + encodeURIComponent(name);
 }
+// 删除单个随心工程副本。
+export function buildBlankDeleteUrl(name: string): string {
+  return BRIDGE + '/blank-delete?name=' + encodeURIComponent(name);
+}
+// 一键清空所有随心工程副本。
+export const BLANK_CLEAR_ALL_URL: string = BRIDGE + '/blank-clear-all';
 
 // 一个随心工程副本的信息（由 /blank-list 返回的 JSON 解析而来）。
 export class BlankProjectInfo {

@@ -28,6 +28,9 @@ const BLANK_PROJECTS_DIR = BLANK_ROOT + '/projects';
 const BLANK_CURRENT_FILE = BLANK_ROOT + '/current.txt';
 const BLANK_NEW_SCRIPT = BLANK_ROOT + '/blank_new.sh';
 const BLANK_SELECT_SCRIPT = BLANK_ROOT + '/blank_select.sh';
+// 随心 A 方案：删除单个工程副本 / 一键清空所有副本（模板 template/ 不动）。
+const BLANK_DELETE_SCRIPT = BLANK_ROOT + '/blank_delete.sh';
+const BLANK_CLEAR_ALL_SCRIPT = BLANK_ROOT + '/blank_clear_all.sh';
 // 多元开发：视频播放器工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 videoplayer-signed.hap）。
 const VIDEOPLAYER_RESTORE_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/restore_videoplayer_project.sh';
 const VIDEOPLAYER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/install_initial_videoplayer.sh';
@@ -354,6 +357,18 @@ const server = createServer(async (req, res) => {
     const name = parseQueryParam(req.url, 'name');
     if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
     sendResult(res, await runScriptWithArg(BLANK_SELECT_SCRIPT, name, 60000));
+    return;
+  }
+  // 随心 A 方案：一键清空所有工程副本（无参数；放在 /blank-delete 之前，避免前缀歧义）。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-clear-all')) {
+    sendResult(res, await runFixedScript(BLANK_CLEAR_ALL_SCRIPT, 30000));
+    return;
+  }
+  // 随心 A 方案：删除单个工程副本（?name=...）：删 projects/<名>/ + 若 current 指向它则清空。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-delete')) {
+    const name = parseQueryParam(req.url, 'name');
+    if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
+    sendResult(res, await runScriptWithArg(BLANK_DELETE_SCRIPT, name, 30000));
     return;
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-videoplayer') {
