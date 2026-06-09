@@ -1,13 +1,13 @@
 // 高级版菜单视图
-// 从 pages/Index.ets 抽取：高级版左侧的"教学之路 / 自由开发"两个入口卡片。
-// 两个入口点击后各自进入独立子界面（教学之路 / 自由开发视图）。
+// 从 pages/Index.ets 抽取：高级版左侧的"教学之路 / 多元开发"两个入口卡片。
+// 两个入口点击后各自进入独立子界面（教学之路视图 / 多元开发工程列表）。
 
 @Component
 export struct AdvancedMenuView {
   // 点击「进入教学之路」：进入教学子界面
   onEnterTeaching: () => void = () => {};
-  // 点击「进入自由开发」：进入自由开发子界面
-  onEnterFreeDev: () => void = () => {};
+  // 点击「进入多元开发」：进入多元开发工程列表
+  onEnterMultiDev: () => void = () => {};
   // openclaw 是否正在处理（处理中禁用入口按钮）
   @Prop freeDevBusy: boolean = false;
 
@@ -48,19 +48,19 @@ export struct AdvancedMenuView {
       .alignItems(HorizontalAlign.Start)
 
       Column() {
-        Text('自由开发')
+        Text('多元开发')
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor('#89b4fa')
           .margin({ bottom: 6 })
 
-        Text('进入日程 HAP 还原任务：初始化 openclaw 身份后，选择提示词驱动 OpenClaw 协同开发。')
+        Text('进入多个可自由开发的 HAP 工程：日程 / 扫雷 / 随心空白工程，选择其一与 AI 协同从零或在基础上开发。')
           .fontSize(12)
           .fontColor('#a6adc8')
           .margin({ bottom: 12 })
           .lineHeight(16)
 
-        Button('进入自由开发')
+        Button('进入多元开发')
           .width('100%')
           .height(34)
           .fontSize(12)
@@ -68,7 +68,7 @@ export struct AdvancedMenuView {
           .fontColor('#89b4fa')
           .enabled(!this.freeDevBusy)
           .opacity(this.freeDevBusy ? 0.5 : 1)
-          .onClick(() => { this.onEnterFreeDev(); })
+          .onClick(() => { this.onEnterMultiDev(); })
       }
       .width('100%')
       .padding(14)

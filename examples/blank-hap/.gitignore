@@ -1,0 +1,19 @@
+# OpenHarmony / DevEco Studio build artifacts
+/build
+**/build/
+/entry/build/
+.hvigor/
+.cxx/
+oh_modules/
+node_modules/
+*.hap
+*.har
+*.hsp
+
+# IDE
+.idea/
+.DS_Store
+*.iml
+
+# local SDK path (machine specific)
+local.properties

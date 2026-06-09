@@ -3,13 +3,15 @@ import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
-import { buildScheduleIdentityPrompt, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt, FREEDEV_AGENT_ID, ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
+import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
+import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt } from '../model/MultiDevContent';
 import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
 import { AdvancedMenuView } from '../view/AdvancedMenuView';
 import { TeachingPathView } from '../view/TeachingPathView';
 import { FreeDevView } from '../view/FreeDevView';
+import { MultiDevMenuView } from '../view/MultiDevMenuView';
 import { WorkspaceView } from '../view/WorkspaceView';
 
 @Entry
@@ -87,7 +89,9 @@ struct Index {
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
-  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'freedev'
+  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'freedev'
+  @State multiDevProjectId: string = 'schedule'; // 多元开发：当前进入的工程 id
+  @State multiDevReadyId: string = ''; // 多元开发：已完成身份初始化的工程 id（空=未就绪）
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
@@ -193,12 +197,20 @@ struct Index {
     }
   }
 
+  // 当前源码浏览器对应的工程根目录：自由开发时为所选多元开发工程的 projectRoot，否则为日程基线根。
+  currentProjectRoot(): string {
+    if (this.advancedScreen === 'freedev') {
+      return getMultiDevProject(this.multiDevProjectId).projectRoot;
+    }
+    return ADVANCED_PROJECT_ROOT;
+  }
+
   // 高级关卡：拉取工程根目录下的所有文件（相对路径列表），默认选中主页面 Index.ets。
   async fetchAdvancedFileList(): Promise<void> {
     this.advancedFilesLoading = true;
     this.advancedFilesError = '';
     try {
-      let listUrl = 'http://127.0.0.1:7681/list-files?path=' + encodeURIComponent(ADVANCED_PROJECT_ROOT);
+      let listUrl = 'http://127.0.0.1:7681/list-files?path=' + encodeURIComponent(this.currentProjectRoot());
       let text = await this.client.requestText(listUrl, http.RequestMethod.GET);
       if (!text || text.indexOf('error:') === 0 || text.indexOf('path not allowed') === 0 ||
         text.indexOf('dir not found') === 0 || text.indexOf('missing path') === 0) {
@@ -236,7 +248,7 @@ struct Index {
     this.sourceFileLoading = true;
     this.sourceFileError = '';
     try {
-      let absPath = ADVANCED_PROJECT_ROOT + '/' + relPath;
+      let absPath = this.currentProjectRoot() + '/' + relPath;
       let readUrl = 'http://127.0.0.1:7681/read-file?path=' + encodeURIComponent(absPath);
       let content = await this.client.requestText(readUrl, http.RequestMethod.GET);
       if (content.indexOf('error:') === 0 || content.indexOf('path not allowed') === 0 ||
@@ -700,7 +712,7 @@ struct Index {
       }
       let chatAgentId = '';
       if (this.currentMode === 'advanced') {
-        chatAgentId = this.advancedScreen === 'teaching' ? TEACHING_AGENT_ID : FREEDEV_AGENT_ID;
+        chatAgentId = this.advancedScreen === 'teaching' ? TEACHING_AGENT_ID : getMultiDevProject(this.multiDevProjectId).agentId;
       }
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
@@ -741,7 +753,13 @@ struct Index {
     });
   }
 
-  async initFreeDevIdentity(): Promise<void> {
+  // 当前所选的多元开发工程描述。
+  currentMultiDevProject(): MultiDevProject {
+    return getMultiDevProject(this.multiDevProjectId);
+  }
+
+  // 初始化某个多元开发工程绑定的 OpenClaw agent 身份（与原日程一致：发一句确认身份）。
+  async initMultiDevIdentity(project: MultiDevProject): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
@@ -753,50 +771,55 @@ struct Index {
     this.studentQuestionEnabled = true;
     this.workspaceTab = 0;
     this.chatInput = '';
-    this.chatMessages.push(new ChatMessage('user', '【自由开发】初始化日程 HAP 自由开发身份'));
+    this.chatMessages.push(new ChatMessage('user', '【多元开发】初始化' + project.title + '身份'));
     this.openClawBusy = true;
     try {
       // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
       let raceResult = await Promise.race([
-        this.client.startTurn(buildScheduleIdentityPrompt(), () => {
+        this.client.startTurn(buildMultiDevIdentityPrompt(), () => {
           this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
           this.chatMessages = [...this.chatMessages];
-        }, FREEDEV_AGENT_ID).then(() => 'ok'),
+        }, project.agentId).then(() => 'ok'),
         this.timeoutSentinel(60000)
       ]);
-      // 被重置过就不再标记就绪（旧身份初始化作废），避免误置 freeDevReady 让旧会话被当成已就绪。
+      // 被重置过就不再标记就绪（旧身份初始化作废）。
       if (epoch !== this.courseEpoch) {
         return;
       }
       if (raceResult === '__timeout__') {
         this.projectInitOverlayVisible = false;
         this.openClawBusy = false;
-        this.currentExecutionLog += '[openclaw] free-dev identity init timeout (60s)\n';
+        this.currentExecutionLog += '[openclaw] multidev identity init timeout (60s)\n';
         this.chatMessages.push(new ChatMessage('assistant',
-          '身份初始化超时（网关 60 秒内未响应）。请确认板端 OpenClaw 网关与 shell-bridge 在运行，然后点「重置开发」后重新进入自由开发。'));
+          '身份初始化超时（网关 60 秒内未响应）。请确认板端 OpenClaw 网关与 shell-bridge 在运行，然后点「重置开发」后重新进入。'));
         this.chatMessages = [...this.chatMessages];
         return;
       }
       this.freeDevReady = true;
+      this.multiDevReadyId = project.id;
       this.openClawBusy = false;
     } catch (error) {
-      // 因课程重置导致的失败（代际已变）：clearCourseState 已把对话刷新干净，
-      // 这里不要再往里补「初始化失败：Course reset」残留文案。
       if (epoch !== this.courseEpoch) {
         return;
       }
       let message = (error as Error).message;
-      this.currentExecutionLog += '[openclaw] free-dev identity init failed: ' + message + '\n';
+      this.currentExecutionLog += '[openclaw] multidev identity init failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 身份初始化失败：' + message));
       this.openClawBusy = false;
       this.projectInitOverlayVisible = false;
     }
   }
 
-  async sendFreeDevPrompt(promptText: string, label: string): Promise<void> {
+  // 发送当前工程的第 index 个预设提示词（仅日程工程有预设；扫雷/随心为空）。
+  async sendMultiDevPreset(index: number): Promise<void> {
+    let project = this.currentMultiDevProject();
+    if (index < 0 || index >= project.presets.length) {
+      return;
+    }
+    let preset = project.presets[index];
     if (!this.freeDevReady) {
       promptAction.showToast({
-        message: '请先点击“进入自由开发”初始化身份。',
+        message: '请先初始化开发身份。',
         duration: 1800
       });
       return;
@@ -810,26 +833,25 @@ struct Index {
     }
     let epoch = this.courseEpoch;
     this.workspaceTab = 0;
-    this.chatMessages.push(new ChatMessage('user', label));
+    this.chatMessages.push(new ChatMessage('user', preset.label));
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     this.overlayShownAt = Date.now();
     this.startHistoryPolling(this.courseEpoch);
     try {
-      await this.client.startTurn(promptText, () => {
+      await this.client.startTurn(preset.prompt, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID, () => { this.enterReplyingPhase(); });
+      }, project.agentId, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
-      // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
       if (epoch !== this.courseEpoch) {
         return;
       }
       let message = (error as Error).message;
-      this.currentExecutionLog += '[openclaw] free-dev prompt failed: ' + message + '\n';
+      this.currentExecutionLog += '[openclaw] multidev preset failed: ' + message + '\n';
       this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 调用失败：' + message));
       this.openClawBusy = false;
     }
@@ -968,6 +990,7 @@ struct Index {
     this.openClawBusy = false;
     this.studentQuestionEnabled = false;
     this.freeDevReady = false;
+    this.multiDevReadyId = '';
     this.advancedScreen = 'menu';
     this.teachingReady = false;
     this.teachingFlowStep = 0;
@@ -997,6 +1020,9 @@ struct Index {
       return;
     }
     this.courseResetting = true;
+    // 重置自由开发时，按「当前所选多元开发工程」的还原端点刷回该工程基线（不同工程不同端点）。
+    let wasFreeDev = this.currentMode === 'advanced' && this.advancedScreen === 'freedev';
+    let freeDevResetUrl = getMultiDevProject(this.multiDevProjectId).resetUrl;
     // 先无条件清掉会话与课程状态（含 client.reset() 关旧连接 + freeDevReady/teachingReady=false）。
     // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
     // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
@@ -1005,7 +1031,9 @@ struct Index {
     this.sourceFileContent = '';
     this.sourceFileError = '';
     try {
-      let resetUrl = this.currentMode === 'advanced' ? this.advancedResetUrl : 'http://127.0.0.1:7681/reset-course';
+      let resetUrl = wasFreeDev
+        ? freeDevResetUrl
+        : (this.currentMode === 'advanced' ? this.advancedResetUrl : 'http://127.0.0.1:7681/reset-course');
       await this.client.requestText(
         resetUrl,
         http.RequestMethod.GET
@@ -1081,6 +1109,62 @@ struct Index {
     return false;
   }
 
+  // 多元开发：把所选工程的板端工程源码还原到初始基线（project.resetUrl → 板端还原脚本），最多重试 3 次。
+  async restoreMultiDevProject(project: MultiDevProject): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(project.resetUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[reset ' + project.id + '] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', project.title + '工程已还原到初始模板。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[reset ' + project.id + '] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.chatMessages.push(new ChatMessage('assistant',
+      project.title + '工程还原多次未成功（已重试 ' + maxAttempts.toString() + ' 次，将继续，但工程可能不是初始状态）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
+  }
+
+  // 多元开发：把所选工程的初始签名 HAP 卸载+安装+启动（project.installUrl → 板端脚本），最多重试 3 次。
+  async installInitialMultiDevHap(project: MultiDevProject): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(project.installUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[install ' + project.id + '] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          this.chatMessages.push(new ChatMessage('assistant', '板上' + project.title + '已还原为初始模板并启动。'));
+          this.chatMessages = [...this.chatMessages];
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[install ' + project.id + '] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.chatMessages.push(new ChatMessage('assistant',
+      '板上' + project.title + '初始化安装多次未成功（已重试 ' + maxAttempts.toString() + ' 次）：' + lastInfo));
+    this.chatMessages = [...this.chatMessages];
+    return false;
+  }
+
   // 教学之路初始状态：仅启动（aa start）完整主日程 HAP（schedule-signed.hap），不卸载/不重装。
   // 板端直跑 install_initial_teaching.sh（/install-teaching），不经 OpenClaw；最多重试 3 次（间隔 800ms）。
   async installTeachingBaseline(): Promise<boolean> {
@@ -1148,9 +1232,8 @@ struct Index {
     }
   }
 
-  // 进入「自由发挥」：首次进入刷回初始工程并初始化还原身份；
-  // 若身份已就位（例如返回主页后再次进入），直接回到自由开发页，不重复还原/初始化。
-  async enterFreeDev(): Promise<void> {
+  // 进入「多元开发」工程列表（不立即还原/初始化，等用户在卡片里选具体工程）。
+  enterMultiDev(): void {
     if (this.openClawBusy) {
       promptAction.showToast({
         message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
@@ -1158,32 +1241,48 @@ struct Index {
       });
       return;
     }
-    if (this.freeDevReady) {
+    this.advancedScreen = 'multidev';
+    this.workspaceTab = 0;
+  }
+
+  // 选择某个多元开发工程进入其自由开发工作区：首次（或切换工程）会还原该工程基线 +
+  // 安装其初始签名 HAP + 初始化绑定 agent 身份；若身份已就位且仍是该工程，直接回工作区。
+  async selectMultiDevProject(id: string): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
+    this.multiDevProjectId = id;
+    let project = getMultiDevProject(id);
+    if (this.freeDevReady && this.multiDevReadyId === id) {
       this.advancedScreen = 'freedev';
       this.workspaceTab = 0;
       return;
     }
+    // 切到新工程：旧身份作废，重新还原 + 初始化（不同工程绑定不同 agent，不可混用）。
+    this.freeDevReady = false;
+    this.multiDevReadyId = '';
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 0;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
-    this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
+    this.chatMessages.push(new ChatMessage('assistant', '正在还原' + project.title + '工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    await this.restoreAdvancedProject();
+    await this.restoreMultiDevProject(project);
     // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
     if (epoch !== this.courseEpoch) {
       return;
     }
-    if (!this.freeDevReady) {
-      this.projectInitStep = 1;
-      // C2：板上 HAP 还原改为板端直跑（不再经 OpenClaw 提示词），秒级完成。
-      await this.installInitialAdvanced();
-      if (epoch !== this.courseEpoch) {
-        return;
-      }
-      await this.initFreeDevIdentity();
+    this.projectInitStep = 1;
+    await this.installInitialMultiDevHap(project);
+    if (epoch !== this.courseEpoch) {
+      return;
     }
+    await this.initMultiDevIdentity(project);
   }
 
   // Pre-fill states on selecting a task
@@ -1549,6 +1648,26 @@ struct Index {
               .borderRadius(8)
               .onClick(() => { this.currentMode = ''; })
 
+            if (this.currentMode === 'advanced' && this.advancedScreen !== 'menu') {
+              // 上一级：freedev → 多元开发列表；多元开发/教学 → 高级菜单。
+              Button('上一级')
+                .height(36)
+                .fontSize(14)
+                .backgroundColor('#45475a')
+                .fontColor('#cdd6f4')
+                .borderRadius(8)
+                .margin({ left: 8 })
+                .enabled(!this.openClawBusy && !this.courseResetting)
+                .onClick(() => {
+                  if (this.advancedScreen === 'freedev') {
+                    this.advancedScreen = 'multidev';
+                  } else {
+                    this.advancedScreen = 'menu';
+                  }
+                  this.workspaceTab = 0;
+                })
+            }
+
             Text(this.currentMode === 'advanced' ? '鸿蒙 ArkUI 高级开发课程' : '鸿蒙 ArkUI 智能交互式学习课程')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
@@ -1557,7 +1676,7 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0 || (this.currentMode === 'advanced' && this.advancedScreen !== 'menu')) {
+            if (this.tutorialStep > 0 || (this.currentMode === 'advanced' && (this.advancedScreen === 'teaching' || this.advancedScreen === 'freedev'))) {
               Button(this.courseResetting
                 ? '正在还原项目...'
                 : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
@@ -1632,21 +1751,22 @@ struct Index {
                     })
                   } else if (this.advancedScreen === 'freedev') {
                     FreeDevView({
+                      projectId: this.multiDevProjectId,
                       freeDevReady: this.freeDevReady,
                       freeDevBusy: this.openClawBusy,
-                      onReinitIdentity: () => { this.initFreeDevIdentity(); },
-                      onSendRestoreType: () => {
-                        this.sendFreeDevPrompt(buildRestoreTypeMenuPrompt(), '① 还原：类型下拉菜单');
-                      },
-                      onSendRestoreReminder: () => {
-                        this.sendFreeDevPrompt(buildRestoreReminderPrompt(), '② 还原：提醒 + 响铃开关');
-                      }
+                      onReinitIdentity: () => { this.initMultiDevIdentity(this.currentMultiDevProject()); },
+                      onSendPreset: (index: number) => { this.sendMultiDevPreset(index); }
+                    })
+                  } else if (this.advancedScreen === 'multidev') {
+                    MultiDevMenuView({
+                      multiDevBusy: this.openClawBusy,
+                      onSelectProject: (id: string) => { this.selectMultiDevProject(id); }
                     })
                   } else {
                     AdvancedMenuView({
                       onEnterTeaching: () => { this.enterTeaching(); },
                       freeDevBusy: this.openClawBusy,
-                      onEnterFreeDev: () => { this.enterFreeDev(); }
+                      onEnterMultiDev: () => { this.enterMultiDev(); }
                     })
                   }
 
@@ -2355,8 +2475,9 @@ struct Index {
         // 第二步：还原板上 HAP（自由发挥经板端直跑）并经 OpenClaw 初始化身份。
         this.focusLoadingOverlay('正在初始化项目', '② 正在初始化身份，请稍候', 2)
       } else {
-        // 第一步：HTTP 直连板端还原工程源码模板。
-        this.focusLoadingOverlay('正在初始化项目', '① 正在还原日程工程模板，请稍候', 1)
+        // 第一步：HTTP 直连板端还原工程源码模板（多元开发按所选工程命名）。
+        this.focusLoadingOverlay('正在初始化项目',
+          '① 正在还原' + (this.advancedScreen === 'freedev' ? getMultiDevProject(this.multiDevProjectId).title : '日程') + '工程模板，请稍候', 1)
       }
     }
 
@@ -2378,7 +2499,7 @@ struct Index {
             .fontColor('#cdd6f4')
 
           Text(this.advancedScreen === 'freedev'
-            ? '将清空当前自由开发会话，并把日程工程还原到初始模板。未保存的改动会丢失，确定继续吗？'
+            ? ('将清空当前自由开发会话，并把' + getMultiDevProject(this.multiDevProjectId).title + '工程还原到初始模板。未保存的改动会丢失，确定继续吗？')
             : '将清空当前会话并把课程工程还原到初始模板。未保存的改动会丢失，确定继续吗？')
             .fontSize(14)
             .fontColor('#a6adc8')
