@@ -1,7 +1,9 @@
 import { webview } from '@kit.ArkWeb';
 import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
-import { ChatMessage } from '../model/OpenClawTypes';
+import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+import { ChatMessage, Conversation } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
 import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, BLANK_PROJECT } from '../model/MultiDevContent';
@@ -14,6 +16,10 @@ import { FreeDevView } from '../view/FreeDevView';
 import { MultiDevMenuView } from '../view/MultiDevMenuView';
 import { BlankProjectsView } from '../view/BlankProjectsView';
 import { WorkspaceView } from '../view/WorkspaceView';
+
+// 多会话持久化存储（preferences）的库名与键名。
+const CONV_STORE_NAME: string = 'openclaw_conversations';
+const CONV_STORE_KEY: string = 'data';
 
 @Entry
 @Component
@@ -89,6 +95,15 @@ struct Index {
   @State chatInput: string = '';
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
+
+  // === 多会话隔离 ===
+  // 每个进入点（教学之路 / 各工程自由开发 / 随心每个副本）各占一条独立会话，拥有自己的
+  // 对话消息与网关会话上下文。chatMessages 始终是「当前活动会话」的镜像；切换上下文时先把
+  // chatMessages 回写到旧会话记录，再载入目标会话的消息。会话持久化到 preferences，关闭应用不丢；
+  // 仅「重置课程」删教学会话、「重置开发」删当前工程会话。
+  private conversations: Conversation[] = [];
+  private activeConvKey: string = '';
+  private convStorePromise: Promise<preferences.Preferences> | null = null;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
   @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'blanklist' | 'freedev'
   @State multiDevProjectId: string = 'schedule'; // 多元开发：当前进入的工程 id
@@ -150,6 +165,176 @@ struct Index {
       }
       this.currentExecutionLog += '[gwevent ' + eventName + '] ' + dump + '\n';
     };
+    // 载入持久化的会话（关闭应用后重开仍在）。异步，不阻塞首屏。
+    this.loadConversations();
+  }
+
+  aboutToDisappear(): void {
+    // 退出页面/应用前把当前活动会话回写并持久化，避免最后一段对话丢失。
+    this.persistConversations();
+  }
+
+  // === 多会话隔离：持久化与切换 ===
+  private getConvStore(): Promise<preferences.Preferences> {
+    if (!this.convStorePromise) {
+      let ctx = getContext(this) as common.Context;
+      let opt: preferences.Options = { name: CONV_STORE_NAME };
+      this.convStorePromise = preferences.getPreferences(ctx, opt);
+    }
+    return this.convStorePromise;
+  }
+
+  private findConv(key: string): Conversation | null {
+    for (let i = 0; i < this.conversations.length; i++) {
+      if (this.conversations[i].key === key) {
+        return this.conversations[i];
+      }
+    }
+    return null;
+  }
+
+  // 当前活动会话的初始问候语（按上下文类型给不同文案）。
+  private seedGreeting(kind: string, title: string): ChatMessage[] {
+    let text = '';
+    if (kind === 'teaching') {
+      text = '你好，我是 OpenClaw 教学讲师。这里是「教学之路」的独立会话，进度与对话都会保留。';
+    } else if (kind === 'blank') {
+      text = '你好，这里是随心工程「' + title + '」的独立会话。告诉我你想做什么，我来帮你开发并出 HAP。';
+    } else {
+      text = '你好，这里是「' + title + '」的独立自由开发会话。告诉我你的需求，我来精准修改并出 HAP。';
+    }
+    return [new ChatMessage('assistant', text)];
+  }
+
+  // 把当前 chatMessages 与网关会话状态回写到活动会话记录（持久化前调用）。
+  private syncActiveFromUI(): void {
+    if (!this.activeConvKey) {
+      return;
+    }
+    let conv = this.findConv(this.activeConvKey);
+    if (!conv) {
+      return;
+    }
+    conv.messages = this.chatMessages.slice();
+    conv.sessionKey = this.client.sessionKey;
+    conv.sessionId = this.client.sessionId;
+    conv.updatedAt = Date.now();
+  }
+
+  private async persistConversations(): Promise<void> {
+    this.syncActiveFromUI();
+    try {
+      let store = await this.getConvStore();
+      await store.put(CONV_STORE_KEY, JSON.stringify(this.conversations));
+      await store.flush();
+    } catch (e) {
+      console.error('persistConversations failed: ' + (e as Error).message);
+    }
+  }
+
+  private async loadConversations(): Promise<void> {
+    try {
+      let store = await this.getConvStore();
+      let raw = await store.get(CONV_STORE_KEY, '') as string;
+      if (!raw) {
+        return;
+      }
+      let arr = JSON.parse(raw) as Object[];
+      let list: Conversation[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        let o = arr[i] as Record<string, Object>;
+        let conv = new Conversation(
+          o['key'] ? o['key'] as string : '',
+          o['title'] ? o['title'] as string : '',
+          o['kind'] ? o['kind'] as string : '',
+          o['projectId'] ? o['projectId'] as string : '',
+          o['blankName'] ? o['blankName'] as string : '',
+          o['agentId'] ? o['agentId'] as string : ''
+        );
+        conv.sessionKey = o['sessionKey'] ? o['sessionKey'] as string : '';
+        conv.sessionId = o['sessionId'] ? o['sessionId'] as string : '';
+        conv.ready = o['ready'] ? o['ready'] as boolean : false;
+        conv.updatedAt = o['updatedAt'] ? o['updatedAt'] as number : 0;
+        let msgs: ChatMessage[] = [];
+        let marr: Object[] = o['messages'] ? o['messages'] as Object[] : [];
+        for (let j = 0; j < marr.length; j++) {
+          let m = marr[j] as Record<string, Object>;
+          let cm = new ChatMessage(
+            m['sender'] ? m['sender'] as string : 'assistant',
+            m['text'] ? m['text'] as string : '',
+            m['kind'] ? m['kind'] as string : 'text',
+            m['toolName'] ? m['toolName'] as string : '',
+            m['toolArgs'] ? m['toolArgs'] as string : '',
+            m['isError'] ? m['isError'] as boolean : false
+          );
+          cm.collapsed = m['collapsed'] !== undefined ? (m['collapsed'] as boolean) : true;
+          msgs.push(cm);
+        }
+        conv.messages = msgs;
+        if (conv.key.length > 0) {
+          list.push(conv);
+        }
+      }
+      this.conversations = list;
+    } catch (e) {
+      console.error('loadConversations failed: ' + (e as Error).message);
+    }
+  }
+
+  // 切换到指定上下文的独立会话：回写旧会话→载入/新建目标会话→采用其网关会话续接历史。
+  // 返回目标会话记录（调用方据 conv.ready 决定是否跳过还原/初始化，直接复用已有会话）。
+  private switchConversation(key: string, title: string, kind: string,
+      projectId: string, blankName: string, agentId: string): Conversation {
+    if (this.activeConvKey === key) {
+      let cur = this.findConv(key);
+      if (cur) {
+        this.client.adoptSession(cur.sessionKey, cur.sessionId, cur.agentId);
+        return cur;
+      }
+    }
+    this.syncActiveFromUI();
+    let conv = this.findConv(key);
+    if (!conv) {
+      conv = new Conversation(key, title, kind, projectId, blankName, agentId);
+      conv.messages = this.seedGreeting(kind, title);
+      this.conversations.push(conv);
+    } else {
+      conv.title = title;
+      conv.agentId = agentId;
+    }
+    this.activeConvKey = key;
+    this.chatMessages = conv.messages.length > 0 ? conv.messages.slice() : this.seedGreeting(kind, title);
+    this.client.adoptSession(conv.sessionKey, conv.sessionId, conv.agentId);
+    this.persistConversations();
+    return conv;
+  }
+
+  // 标记活动会话身份已就绪（初始化成功后调用），并持久化。
+  private markActiveConvReady(): void {
+    let conv = this.findConv(this.activeConvKey);
+    if (conv) {
+      conv.ready = true;
+    }
+    this.persistConversations();
+  }
+
+  // 删除当前活动会话（仅由「重置课程/重置开发」触发；关闭应用不调用）。
+  private deleteActiveConversation(): void {
+    if (!this.activeConvKey) {
+      return;
+    }
+    let idx = -1;
+    for (let i = 0; i < this.conversations.length; i++) {
+      if (this.conversations[i].key === this.activeConvKey) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) {
+      this.conversations.splice(idx, 1);
+    }
+    this.activeConvKey = '';
+    this.persistConversations();
   }
 
   // Async helper for delays
@@ -380,6 +565,8 @@ struct Index {
       let finalEpoch = this.courseEpoch;
       this.enrichTurnFromHistory(finalEpoch);
       setTimeout(() => { this.enrichTurnFromHistory(finalEpoch); }, 1200);
+      // 富集内容补齐后把本轮完整对话回写持久化（关闭应用不丢）。
+      setTimeout(() => { this.persistConversations(); }, 1600);
     } else if (state === 'error' || state === 'aborted') {
       this.stopHistoryPolling();
       this.aiProcessingOverlayVisible = false;
@@ -731,6 +918,8 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }, chatAgentId, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
+      // 本轮结束：把消息与网关会话状态回写并持久化（关闭应用不丢）。
+      this.persistConversations();
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
@@ -809,6 +998,7 @@ struct Index {
       }
       this.freeDevReady = true;
       this.multiDevReadyId = project.id;
+      this.markActiveConvReady();
       this.openClawBusy = false;
     } catch (error) {
       if (epoch !== this.courseEpoch) {
@@ -906,6 +1096,7 @@ struct Index {
         return;
       }
       this.teachingReady = true;
+      this.markActiveConvReady();
       this.openClawBusy = false;
     } catch (error) {
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
@@ -1039,6 +1230,9 @@ struct Index {
     // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
     // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
     // 简单关还原脚本轻量、基本不失败，所以一直能开新会话——这正是两者表现差异的根因。
+    // 多会话删除规则：只有「重置课程/重置开发」才删当前会话——删掉当前活动会话（教学之路 /
+    // 当前工程自由开发 / 当前随心副本）的持久化记录；其它会话与关闭应用都不受影响。
+    this.deleteActiveConversation();
     this.clearCourseState();
     this.sourceFileContent = '';
     this.sourceFileError = '';
@@ -1216,9 +1410,13 @@ struct Index {
       });
       return;
     }
+    // 切到「教学之路」的独立会话（持久化、续接历史）。若该会话此前已就绪，直接复用不重复初始化。
+    let conv = this.switchConversation('teaching', '教学之路', 'teaching', '', '', TEACHING_AGENT_ID);
+    this.teachingReady = conv.ready;
     if (this.teachingReady) {
       this.advancedScreen = 'teaching';
       this.workspaceTab = 0;
+      this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
     let epoch = this.courseEpoch;
@@ -1277,14 +1475,17 @@ struct Index {
       await this.loadBlankProjects();
       return;
     }
+    // 切到该工程的独立自由开发会话（持久化、续接历史）。
+    let conv = this.switchConversation('freedev:' + id, project.title + '·自由开发', 'freedev', id, '', project.agentId);
+    this.freeDevReady = conv.ready;
+    this.multiDevReadyId = conv.ready ? id : '';
     if (this.freeDevReady && this.multiDevReadyId === id) {
+      // 该会话此前已就绪（同次运行内切回，或重开应用后复用）：直接进工作区续接，不重复还原/初始化。
       this.advancedScreen = 'freedev';
       this.workspaceTab = 0;
+      this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
-    // 切到新工程：旧身份作废，重新还原 + 初始化（不同工程绑定不同 agent，不可混用）。
-    this.freeDevReady = false;
-    this.multiDevReadyId = '';
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 0;
@@ -1354,8 +1555,12 @@ struct Index {
       return;
     }
     this.multiDevProjectId = 'blank';
-    this.freeDevReady = false;
-    this.multiDevReadyId = '';
+    // 每个随心副本各占一条独立会话（key=blank:<name>），持久化、续接历史、互不串扰。
+    let conv = this.switchConversation('blank:' + name, '随心·' + name, 'blank', 'blank', name, BLANK_PROJECT.agentId);
+    // 该副本会话此前已就绪且非新建：仍切板端当前工程指针，但跳过身份初始化，直接续接对话。
+    let resume = conv.ready && !isNew;
+    this.freeDevReady = conv.ready;
+    this.multiDevReadyId = conv.ready ? 'blank' : '';
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 1;
@@ -1386,6 +1591,12 @@ struct Index {
       this.chatMessages = [...this.chatMessages];
     }
     if (epoch !== this.courseEpoch) {
+      return;
+    }
+    if (resume) {
+      // 复用已就绪会话：不重复初始化身份，直接回到工作区续接对话。
+      this.studentQuestionEnabled = true;
+      this.projectInitOverlayVisible = false;
       return;
     }
     await this.initMultiDevIdentity(BLANK_PROJECT);

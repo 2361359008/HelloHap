@@ -321,6 +321,16 @@ export class OpenClawClient {
     });
   }
 
+  // 采用（恢复）一条已存在的会话上下文：切换到某个独立对话框时调用。
+  // 设定 agentId + sessionKey + sessionId 后，ensureSession 会复用该 sessionKey 续接其历史，
+  // 不再新建会话（sessionKey 为空时则会在 ensureSession 里新建一条全新会话）。
+  // 不重连/不重置连接：同一 WebSocket 可服务多条会话（网关按 sessionKey 路由）。
+  adoptSession(sessionKey: string, sessionId: string, agentId: string): void {
+    this.currentAgentId = agentId;
+    this.sessionKey = sessionKey;
+    this.sessionId = sessionId;
+  }
+
   // 确保已有会话：必要时创建 session，并刷新 sessionId。
   // agentId 用于把会话绑定到指定 agent（''=默认 main）；切换 agent 时重建会话。
   private async ensureSession(agentId: string, epoch: number): Promise<void> {
