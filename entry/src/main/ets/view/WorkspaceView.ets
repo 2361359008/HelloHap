@@ -54,7 +54,7 @@ export struct WorkspaceView {
   @Link workspaceTab: number;
   @Prop selectedTaskIndex: number;
   @Prop currentMode: string;
-  @Link chatMessages: Array<ChatMessage>;
+  @Link @Watch('onChatMessagesChanged') chatMessages: Array<ChatMessage>;
   @Prop sourceFileLoading: boolean;
   @Prop sourceFileError: string;
   @Prop sourceText: string;
@@ -76,6 +76,13 @@ export struct WorkspaceView {
   @State expandedDirs: string[] = [];
   // 顶部「AI 助手正在处理…」左右往返动画的水平位移量（px）。
   @State busyShift: number = 0;
+  // 对话区滚动控制器：新消息/流式更新到达时自动滚到底部，跟随最新对话。
+  private chatScroller: Scroller = new Scroller();
+
+  // chatMessages 变化（新消息或流式更新）时，延迟到布局完成后把对话区滚到底部。
+  onChatMessagesChanged(): void {
+    setTimeout(() => { this.chatScroller.scrollEdge(Edge.Bottom); }, 60);
+  }
 
   aboutToAppear(): void {
     if (this.openClawBusy) {
@@ -291,7 +298,7 @@ export struct WorkspaceView {
             .borderWidth({ bottom: 1 })
             .borderColor('#313244')
 
-            Scroll() {
+            Scroll(this.chatScroller) {
               Column() {
                 if (this.selectedTaskIndex === 0 && this.currentMode !== 'advanced') {
                   Column() {
