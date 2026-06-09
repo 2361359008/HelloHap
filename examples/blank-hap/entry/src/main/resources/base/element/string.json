@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "空白随心开发工程" },
+    { "name": "EntryAbility_desc", "value": "随心开发主页面" },
+    { "name": "EntryAbility_label", "value": "随心" }
+  ]
+}

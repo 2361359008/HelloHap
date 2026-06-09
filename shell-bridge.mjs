@@ -16,16 +16,41 @@ const ADVANCED_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/advanced-hapbuild/insta
 // 进入「教学之路」时仅启动（aa start）完整主日程 HAP（bundle=com.openclaw.schedulehap），不卸载/不重装。
 // 与自由发挥对称、板端直跑不经 OpenClaw，区别是这里只启动完整主 HAP（非 .lite 分身）。
 const TEACHING_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/advanced-hapbuild/install_initial_teaching.sh';
+// 多元开发：扫雷工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 minesweeper-signed.hap）。
+const MINESWEEPER_RESTORE_SCRIPT = '/data/local/tmp/minesweeper-hapbuild/restore_minesweeper_project.sh';
+const MINESWEEPER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/minesweeper-hapbuild/install_initial_minesweeper.sh';
+// 多元开发：随心（空白）工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 blank-signed.hap）。
+const BLANK_RESTORE_SCRIPT = '/data/local/tmp/blank-hapbuild/restore_blank_project.sh';
+const BLANK_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/blank-hapbuild/install_initial_blank.sh';
+// 多元开发：视频播放器工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 videoplayer-signed.hap）。
+const VIDEOPLAYER_RESTORE_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/restore_videoplayer_project.sh';
+const VIDEOPLAYER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/install_initial_videoplayer.sh';
+// 多元开发：计算器工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 calculator-signed.hap）。
+const CALCULATOR_RESTORE_SCRIPT = '/data/local/tmp/calculator-hapbuild/restore_calculator_project.sh';
+const CALCULATOR_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/calculator-hapbuild/install_initial_calculator.sh';
+// 多元开发：俄罗斯方块工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 tetris-signed.hap）。
+const TETRIS_RESTORE_SCRIPT = '/data/local/tmp/tetris-hapbuild/restore_tetris_project.sh';
+const TETRIS_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/tetris-hapbuild/install_initial_tetris.sh';
 const HDC_SHELL_GROUPS = [0, 1006, 1007, 2000, 3009];
 const ALLOWED_READ_PREFIXES = [
   '/data/local/tmp/oh61-hapbuild/project/',
   '/data/local/tmp/advanced-hapbuild/project/',
+  '/data/local/tmp/minesweeper-hapbuild/project/',
+  '/data/local/tmp/blank-hapbuild/project/',
+  '/data/local/tmp/videoplayer-hapbuild/project/',
+  '/data/local/tmp/calculator-hapbuild/project/',
+  '/data/local/tmp/tetris-hapbuild/project/',
   '/data/local/tmp/.openclaw/workspace/memory/',
 ];
 // 允许「目录列举」的根目录（用于源码区浏览整个工程的文件树）。
 const ALLOWED_LIST_DIRS = [
   '/data/local/tmp/oh61-hapbuild/project',
   '/data/local/tmp/advanced-hapbuild/project',
+  '/data/local/tmp/minesweeper-hapbuild/project',
+  '/data/local/tmp/blank-hapbuild/project',
+  '/data/local/tmp/videoplayer-hapbuild/project',
+  '/data/local/tmp/calculator-hapbuild/project',
+  '/data/local/tmp/tetris-hapbuild/project',
 ];
 // 列举文件树时跳过的目录名（构建产物、依赖、隐藏工程目录等，避免列出海量无关文件）。
 const LIST_SKIP_DIRS = new Set([
@@ -251,6 +276,46 @@ const server = createServer(async (req, res) => {
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-teaching') {
     sendResult(res, await runFixedScript(TEACHING_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-minesweeper') {
+    sendResult(res, await runFixedScript(MINESWEEPER_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-minesweeper') {
+    sendResult(res, await runFixedScript(MINESWEEPER_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-blank') {
+    sendResult(res, await runFixedScript(BLANK_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-blank') {
+    sendResult(res, await runFixedScript(BLANK_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-videoplayer') {
+    sendResult(res, await runFixedScript(VIDEOPLAYER_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-videoplayer') {
+    sendResult(res, await runFixedScript(VIDEOPLAYER_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-calculator') {
+    sendResult(res, await runFixedScript(CALCULATOR_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-calculator') {
+    sendResult(res, await runFixedScript(CALCULATOR_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-tetris') {
+    sendResult(res, await runFixedScript(TETRIS_RESTORE_SCRIPT, 30000));
+    return;
+  }
+  if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-tetris') {
+    sendResult(res, await runFixedScript(TETRIS_INSTALL_INITIAL_SCRIPT, 60000));
     return;
   }
   if (req.method === 'GET' && req.url.startsWith('/read-file')) {
