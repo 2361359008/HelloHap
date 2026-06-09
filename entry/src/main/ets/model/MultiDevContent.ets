@@ -135,11 +135,47 @@ export const VIDEOPLAYER_PROJECT: MultiDevProject = new MultiDevProject(
   []
 );
 
+// 5) 计算器 HAP 自由开发（自适应计算器基线工程 examples/calculator-hap）。
+export const CALCULATOR_PROJECT: MultiDevProject = new MultiDevProject(
+  'calculator',
+  '计算器 HAP 自由开发',
+  '在一个自适应布局的计算器 HAP 上自由发挥：按键、运算、科学计算、配色……和 AI 一起迭代。',
+  '#94e2d5',
+  'com.openclaw.calculator',
+  'calculator',
+  '/data/local/tmp/calculator-hapbuild/project',
+  BRIDGE + '/reset-calculator',
+  BRIDGE + '/install-calculator',
+  '/data/local/tmp/calculator-hapbuild/build_calculator.sh',
+  '欢迎来到计算器 HAP 自由开发界面，计算器工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个计算器改成你想要的样子。',
+  '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
+  []
+);
+
+// 6) 俄罗斯方块 HAP 自由开发（俄罗斯方块基线工程 examples/tetris-hap）。
+export const TETRIS_PROJECT: MultiDevProject = new MultiDevProject(
+  'tetris',
+  '俄罗斯方块 HAP 自由开发',
+  '在俄罗斯方块游戏 HAP 上自由发挥：方块、速度、计分、配色、操作……和 AI 一起迭代。',
+  '#cba6f7',
+  'com.openclaw.tetris',
+  'tetris',
+  '/data/local/tmp/tetris-hapbuild/project',
+  BRIDGE + '/reset-tetris',
+  BRIDGE + '/install-tetris',
+  '/data/local/tmp/tetris-hapbuild/build_tetris.sh',
+  '欢迎来到俄罗斯方块 HAP 自由开发界面，俄罗斯方块工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个游戏改成你想要的样子。',
+  '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
+  []
+);
+
 // 多元开发工程列表（菜单按此顺序展示）。
 export const MULTIDEV_PROJECTS: MultiDevProject[] = [
   SCHEDULE_PROJECT,
   MINESWEEPER_PROJECT,
   VIDEOPLAYER_PROJECT,
+  CALCULATOR_PROJECT,
+  TETRIS_PROJECT,
   BLANK_PROJECT
 ];
 
