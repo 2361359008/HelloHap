@@ -1,0 +1,16 @@
+{
+  "name": "openclaw-minesweeper-hap",
+  "version": "1.0.0",
+  "main": "_setup.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "OpenHarmony ArkTS minesweeper HAP",
+  "dependencies": {
+    "@ohos/hvigor": "^5.0.0",
+    "@ohos/hvigor-ohos-plugin": "^5.0.0"
+  }
+}

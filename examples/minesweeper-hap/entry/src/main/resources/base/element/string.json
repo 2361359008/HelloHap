@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "扫雷游戏" },
+    { "name": "EntryAbility_desc", "value": "扫雷游戏主页面" },
+    { "name": "EntryAbility_label", "value": "扫雷" }
+  ]
+}
