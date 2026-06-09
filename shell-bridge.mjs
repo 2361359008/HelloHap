@@ -28,6 +28,9 @@ const BLANK_PROJECTS_DIR = BLANK_ROOT + '/projects';
 const BLANK_CURRENT_FILE = BLANK_ROOT + '/current.txt';
 const BLANK_NEW_SCRIPT = BLANK_ROOT + '/blank_new.sh';
 const BLANK_SELECT_SCRIPT = BLANK_ROOT + '/blank_select.sh';
+// 随心 A 方案：删除单个工程副本 / 一键清空所有副本（模板 template/ 不动）。
+const BLANK_DELETE_SCRIPT = BLANK_ROOT + '/blank_delete.sh';
+const BLANK_CLEAR_ALL_SCRIPT = BLANK_ROOT + '/blank_clear_all.sh';
 // 多元开发：视频播放器工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 videoplayer-signed.hap）。
 const VIDEOPLAYER_RESTORE_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/restore_videoplayer_project.sh';
 const VIDEOPLAYER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/install_initial_videoplayer.sh';
@@ -109,7 +112,23 @@ function isAllowedListDir(dirPath) {
   return ALLOWED_LIST_PREFIXES.some((prefix) => (d + '/').startsWith(prefix));
 }
 
-// 列出随心的所有工程副本（projects/ 下的子目录）+ 当前激活工程，返回 JSON。
+// 读取某个随心工程的 HAP 名字（桌面图标名）：取 entry 的 EntryAbility_label 字符串值。
+// AI 开发时会把它改成这个 HAP 的名字（如「待办清单」）；读不到或仍是模板默认返回 ''。
+function readBlankLabel(absProjectDir) {
+  const file = absProjectDir + '/entry/src/main/resources/base/element/string.json';
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8'));
+    const arr = Array.isArray(data.string) ? data.string : [];
+    for (const item of arr) {
+      if (item && item.name === 'EntryAbility_label' && typeof item.value === 'string') {
+        return item.value.trim();
+      }
+    }
+  } catch (e) { /* 读不到/解析失败时返回空，前端自行回退 */ }
+  return '';
+}
+
+// 列出随心的所有工程副本（projects/ 下的子目录）+ 当前激活工程，返回 JSON（含每个工程的 label）。
 function listBlankProjects() {
   let current = '';
   try { current = readFileSync(BLANK_CURRENT_FILE, 'utf8').trim(); } catch (e) { current = ''; }
@@ -121,7 +140,7 @@ function listBlankProjects() {
       let st;
       try { st = statSync(abs); } catch (e) { continue; }
       if (!st.isDirectory()) continue;
-      projects.push({ name, path: abs, mtime: Math.floor(st.mtimeMs), current: abs === current });
+      projects.push({ name, path: abs, mtime: Math.floor(st.mtimeMs), current: abs === current, label: readBlankLabel(abs) });
     }
   } catch (e) { /* projects 目录尚不存在时返回空列表 */ }
   return { ok: true, status: 200, output: JSON.stringify({ current, projects }) + '\n' };
@@ -354,6 +373,18 @@ const server = createServer(async (req, res) => {
     const name = parseQueryParam(req.url, 'name');
     if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
     sendResult(res, await runScriptWithArg(BLANK_SELECT_SCRIPT, name, 60000));
+    return;
+  }
+  // 随心 A 方案：一键清空所有工程副本（无参数；放在 /blank-delete 之前，避免前缀歧义）。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-clear-all')) {
+    sendResult(res, await runFixedScript(BLANK_CLEAR_ALL_SCRIPT, 30000));
+    return;
+  }
+  // 随心 A 方案：删除单个工程副本（?name=...）：删 projects/<名>/ + 若 current 指向它则清空。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-delete')) {
+    const name = parseQueryParam(req.url, 'name');
+    if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
+    sendResult(res, await runScriptWithArg(BLANK_DELETE_SCRIPT, name, 30000));
     return;
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-videoplayer') {

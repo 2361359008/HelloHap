@@ -25,15 +25,60 @@ export struct BlankProjectsView {
   onContinue: (name: string) => void = () => {};
   // 新建一个空白工程
   onCreate: () => void = () => {};
+  // 删除某个已有工程副本（二次确认后）
+  onDelete: (name: string) => void = () => {};
+  // 一键清空所有工程副本（强确认后）
+  onClearAll: () => void = () => {};
+
+  // 删除单个工程的二次确认弹窗。
+  private confirmDelete(name: string): void {
+    AlertDialog.show({
+      title: '删除工程',
+      message: '确定删除工程「' + name + '」吗？\n该工程的代码副本和对话记录都会被删除，且无法恢复。其它工程与模板不受影响。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        fontColor: '#f38ba8',
+        value: '删除',
+        action: () => { this.onDelete(name); }
+      }
+    });
+  }
+
+  // 一键清空所有工程的强确认弹窗。
+  private confirmClearAll(): void {
+    AlertDialog.show({
+      title: '清空所有随心工程',
+      message: '确定清空全部 ' + this.blankProjects.length.toString() + ' 个随心工程吗？\n所有代码副本和对话记录都会被删除，且无法恢复！只读模板不受影响。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        fontColor: '#f38ba8',
+        value: '全部清空',
+        action: () => { this.onClearAll(); }
+      }
+    });
+  }
 
   @Builder
   ProjectCard(project: BlankProjectInfo) {
     Column() {
       Row() {
-        Text(project.name)
+        // 标题优先显示 HAP 名字（AI 起的），其次开发目标（会话首句），最后回退工程名。
+        Text(project.label.length > 0 ? project.label : (project.goal.length > 0 ? project.goal : project.name))
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor('#a6e3a1')
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
           .alignSelf(ItemAlign.Start)
 
@@ -49,6 +94,26 @@ export struct BlankProjectsView {
       .width('100%')
       .margin({ bottom: 6 })
 
+      // 已有 HAP 名字时，把开发目标作为第二行说明，便于回忆这工程要做什么。
+      if (project.label.length > 0 && project.goal.length > 0) {
+        Text(project.goal)
+          .fontSize(11)
+          .fontColor('#cdd6f4')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ bottom: 2 })
+          .alignSelf(ItemAlign.Start)
+      }
+
+      // 工程名（blank-时间戳）作为副标题，便于区分不同副本。
+      if (project.label.length > 0 || project.goal.length > 0) {
+        Text(project.name)
+          .fontSize(11)
+          .fontColor('#9399b2')
+          .margin({ bottom: 2 })
+          .alignSelf(ItemAlign.Start)
+      }
+
       Text(project.path)
         .fontSize(11)
         .fontColor('#a6adc8')
@@ -56,15 +121,29 @@ export struct BlankProjectsView {
         .margin({ bottom: 12 })
         .alignSelf(ItemAlign.Start)
 
-      Button('继续开发')
-        .width('100%')
-        .height(34)
-        .fontSize(12)
-        .backgroundColor('#45475a')
-        .fontColor('#a6e3a1')
-        .enabled(!this.blankBusy)
-        .opacity(this.blankBusy ? 0.5 : 1)
-        .onClick(() => { this.onContinue(project.name); })
+      Row() {
+        Button('继续开发')
+          .layoutWeight(1)
+          .height(34)
+          .fontSize(12)
+          .backgroundColor('#45475a')
+          .fontColor('#a6e3a1')
+          .enabled(!this.blankBusy)
+          .opacity(this.blankBusy ? 0.5 : 1)
+          .onClick(() => { this.onContinue(project.name); })
+
+        Button('删除')
+          .width(64)
+          .height(34)
+          .fontSize(12)
+          .backgroundColor('#3b2932')
+          .fontColor('#f38ba8')
+          .margin({ left: 8 })
+          .enabled(!this.blankBusy)
+          .opacity(this.blankBusy ? 0.5 : 1)
+          .onClick(() => { this.confirmDelete(project.name); })
+      }
+      .width('100%')
     }
     .width('100%')
     .padding(14)
@@ -132,6 +211,19 @@ export struct BlankProjectsView {
             .fontColor('#cdd6f4')
             .layoutWeight(1)
             .alignSelf(ItemAlign.Start)
+
+          if (this.blankProjects.length > 0) {
+            Button('清空所有')
+              .height(28)
+              .fontSize(11)
+              .backgroundColor('#3b2932')
+              .fontColor('#f38ba8')
+              .borderRadius(6)
+              .margin({ right: 8 })
+              .enabled(!this.blankBusy && !this.blankListLoading)
+              .opacity((!this.blankBusy && !this.blankListLoading) ? 1 : 0.5)
+              .onClick(() => { this.confirmClearAll(); })
+          }
 
           Button('刷新')
             .height(28)

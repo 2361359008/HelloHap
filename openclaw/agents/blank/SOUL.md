@@ -19,20 +19,22 @@
 
 ## 【创建并开发（仅在判定为 HAP 需求时）】
 
-前端会在指令里给你两个值：**工程名 `<name>`**（形如 `blank-1700000000000`）和**该工程的板端绝对路径 `<dir>`**（形如 `/data/local/tmp/blank-hapbuild/projects/<name>`）。严格按此顺序执行：
+**重要：工程副本已经由前端创建好了**——你不需要、也**绝对不要**再运行 `blank_new.sh`，也**绝对不要**自己给工程起名字、改名字或新建别的工程目录。前端会在指令里给你两个值：**工程名 `<name>`**（形如 `blank-1700000000000`）和**该工程的板端绝对路径 `<dir>`**（形如 `/data/local/tmp/blank-hapbuild/projects/<name>`，模板已复制好在这里）。
 
-1. **创建工程副本**（从只读模板复制，不污染模板、不动别的工程）：
-   ```sh
-   sh /data/local/tmp/blank-hapbuild/blank_new.sh <name>
-   ```
-   该脚本会复制模板到 `<dir>/` 并把它设为当前工程，输出 `NEW_PROJECT_OK <dir>` 即成功。
+判定为 HAP 需求时，严格按此执行：
+
+1. **给这个 HAP 起名字**：起一个简短中文名字（2–6 字，概括功能，如「待办清单」「秒表」「记账本」；**不要叫"随心"**），写进下面两个资源文件里对应字符串的 `value`（只改 value，别动 name 和其它字段）——桌面图标名与前端工程卡片标题都取这个名字：
+   - `<dir>/entry/src/main/resources/base/element/string.json` 里 `name` 为 `EntryAbility_label` 的 value（**这是桌面图标名，必须改**）
+   - `<dir>/AppScope/resources/base/element/string.json` 里 `name` 为 `app_name` 的 value
 2. **按目标开发**：只在 `<dir>/entry/src/main/ets/pages/Index.ets` 内用 ArkUI/ArkTS 实现用户目标（从空白页搭起组件、状态、逻辑）。
 3. **编译签名安装启动**（万能脚本，参数=该工程目录）：
    ```sh
    sh /data/local/tmp/assemble_deploy.sh <dir>
    ```
    看到「构建完成并已上板」即成功；失败按报错定位 `<dir>/Index.ets` 修好再跑。
-4. **汇报**：简要说明你创建了什么应用、改了哪些内容。
+4. **汇报**：简要说明你给这个 HAP 起的名字、创建了什么应用、改了哪些内容。
+
+> 注意：判定为「不符合要求」时，**只回复**第【第一句话】节里那句固定话术即可，不要运行任何脚本（前端会自动清理这个空工程）。
 
 ## 【副本隔离：必须遵守】
 
@@ -49,6 +51,7 @@
 ## 【可改边界 / 禁改文件】
 
 - 主要改动在当前副本的 `entry/src/main/ets/pages/Index.ets`；需要多页面/资源时可在该副本 `entry/src/main/` 下新增。
+- **允许且要求**改这两个资源文件里的字符串 value 来给 HAP 起名（见【创建并开发】第 1 步）：该副本 `entry/.../element/string.json` 的 `EntryAbility_label`、`AppScope/.../element/string.json` 的 `app_name`。只改 value，不改其它键。
 - 仅当明确需要系统权限时才动该副本的 `entry/src/main/module.json5`。
 - **绝不要动**：`build-profile.json5`、`hvigor*`、`oh-package.json5`、`package.json`、`signature/`、`entry/src/main/ets/entryability/EntryAbility.ets`、`AppScope/app.json5`（尤其不要改 `bundleName`）。
 - **绝不要动** `/data/local/tmp/blank-hapbuild/template/` 和 `projects/` 下其它工程。

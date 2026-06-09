@@ -17,9 +17,12 @@ BASELINE_HAP="$ROOT/blank-signed.hap"
 
 NAME_RAW="${1:-}"
 [ -n "$NAME_RAW" ] || { echo "ERROR: 缺少工程名（用法: blank_new.sh <工程名>）" >&2; exit 2; }
-# 只保留安全字符，空格转连字符，避免路径注入。
-NAME="$(echo "$NAME_RAW" | tr ' ' '-' | sed 's/[^A-Za-z0-9_.-]//g')"
-[ -n "$NAME" ] || { echo "ERROR: 工程名非法" >&2; exit 2; }
+# 校验工程名：只允许字母/数字/下划线/点/连字符（用纯 shell 内置 case，板上可能没有 tr/sed）。
+NAME="$NAME_RAW"
+case "$NAME" in
+  ''|.|..|*/*|*[!A-Za-z0-9_.-]*)
+    echo "ERROR: 工程名非法（仅允许字母数字及 . _ -）: $NAME_RAW" >&2; exit 2 ;;
+esac
 
 [ -d "$TEMPLATE" ] || { echo "ERROR: 只读模板不存在: $TEMPLATE" >&2; exit 1; }
 mkdir -p "$PROJECTS"

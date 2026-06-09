@@ -6,7 +6,7 @@ import { common } from '@kit.AbilityKit';
 import { ChatMessage, Conversation } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, BLANK_PROJECT, buildBlankGoalPrompt } from '../model/MultiDevContent';
+import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, buildBlankDeleteUrl, BLANK_CLEAR_ALL_URL, BLANK_PROJECT, buildBlankGoalPrompt } from '../model/MultiDevContent';
 import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
@@ -119,7 +119,9 @@ struct Index {
   @State blankNewName: string = ''; // 新建工程名输入（已弃用文本框，保留兼容 BlankProjectsView @Link）
   @State blankCurrentRoot: string = ''; // 当前激活的空白工程绝对路径（源码浏览/构建按此工程）
   @State blankAwaitingGoal: boolean = false; // 新建随心工程：等待用户第一句话（=开发目标）
-  @State blankCreatingOverlayVisible: boolean = false; // 随心「项目创建中」全屏动画遮罩
+  // 随心「项目创建中」全屏动画遮罩：发出开发目标后显示，OpenClaw 一开始输出内容
+  // （首个非空文本 delta 或富集内容）就立即关闭，不等整轮校验+scaffold+出包跑完。
+  @State blankCreatingOverlayVisible: boolean = false;
   private blankNewPendingName: string = ''; // 新建随心工程待定名称（auto-generated）
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
@@ -346,6 +348,23 @@ struct Index {
     this.persistConversations();
   }
 
+  // 按 key 删除某条会话（不要求其为当前活动会话）；若恰为活动会话则清空活动键。
+  // 用于随心删除/清空工程时同步清掉对应 blank:<名> 会话与持久化。
+  private deleteConversationByKey(key: string): void {
+    if (!key) {
+      return;
+    }
+    for (let i = this.conversations.length - 1; i >= 0; i--) {
+      if (this.conversations[i].key === key) {
+        this.conversations.splice(i, 1);
+      }
+    }
+    if (this.activeConvKey === key) {
+      this.activeConvKey = '';
+    }
+    this.persistConversations();
+  }
+
   // 退出工作区（返回主页 / 上一级）时的收尾：即使 OpenClaw 仍在处理也允许退出，不再卡死。
   // 先把当前会话已产生的内容回写持久化，再自增代际让在途轮次的迟到事件被忽略
   // （见 handleChatStreamEvent 守卫），并停掉本页轮询与忙态遮罩；网络轮次在后台自然结束，
@@ -542,6 +561,10 @@ struct Index {
       // 非空 assistant text 也是「已开始输出过程」的强信号之一：关掉 replying 转圈遮罩。
       if (this.aiProcessingOverlayVisible && text.trim() !== '') {
         this.aiProcessingOverlayVisible = false;
+      }
+      // 随心「项目创建中」遮罩同理：AI 一开始输出内容就关闭，不再等整轮（校验+scaffold+出包）跑完。
+      if (this.blankCreatingOverlayVisible && text.trim() !== '') {
+        this.blankCreatingOverlayVisible = false;
       }
       // 已被富展示接管：纯文本由轮询/最终补全，跳过以免与分段气泡相互覆盖闪烁。
       if (this.turnRichActive) {
@@ -750,6 +773,10 @@ struct Index {
       if (this.projectInitOverlayVisible) {
         this.projectInitOverlayVisible = false;
       }
+      // 随心「项目创建中」遮罩：富集内容（思考/工具/结果）一出现就关闭，改由对话区内联展示承载。
+      if (this.blankCreatingOverlayVisible) {
+        this.blankCreatingOverlayVisible = false;
+      }
       // 注意：不在此处依据「历史文本稳定」判定整轮结束。openClawBusy（发送键忙态 +
       // 顶部「AI 正在处理」）必须保持到收到真实终态事件，避免长编译/工具等待/阶段性
       // 总结期间发送入口被提前解锁。
@@ -931,7 +958,20 @@ struct Index {
     try {
       let sendMsg = userMsg;
       if (isBlankGoal) {
-        // 新建随心工程的第一句话=开发目标：组合校验+创建+开发的 prompt 发给 blank agent。
+        // 工程副本由【前端】确定性创建（名称 ASCII 安全、唯一、只建一次），AI 只负责校验+开发。
+        // 这样杜绝 AI 自取中文名导致「工程名非法」、以及 AI 重试时反复 scaffold 出多个工程。
+        let scaffolded = await this.scaffoldBlankProject(this.blankNewPendingName);
+        if (!scaffolded) {
+          this.chatMessages.push(new ChatMessage('assistant',
+            '工程创建失败，请检查与板子的连接后，重新发送你的开发目标再试一次。', 'text', '', '', true));
+          this.chatMessages = [...this.chatMessages];
+          this.openClawBusy = false;
+          this.blankCreatingOverlayVisible = false;
+          this.stopHistoryPolling();
+          this.persistConversations();
+          return;
+        }
+        // 新建随心工程的第一句话=开发目标：组合校验+开发的 prompt 发给 blank agent（不含创建步骤）。
         sendMsg = buildBlankGoalPrompt(this.blankNewPendingName, this.blankCurrentRoot, userMsg);
       } else if (this.selectedTaskIndex === 4 && userMsg === '请将 HAP 主页面内容修改为 hello world，然后按完整流程执行：编译未签名 HAP、签名生成已签名 HAP、卸载旧应用、安装新 HAP 并启动 EntryAbility。请在执行前说明会修改的文件和命令边界，执行后汇报每一步真实结果。') {
         sendMsg = buildPracticeFullFlowPrompt();
@@ -1515,6 +1555,7 @@ struct Index {
     }
     this.blankAwaitingGoal = false; // 进入教学，清掉「等随心首句目标」态。
     this.blankNewPendingName = '';
+    this.multiDevProjectId = ''; // 离开随心/多元，清掉工程标识（否则会误隐藏教学的「重置课程」）。
     // 切到「教学之路」的独立会话（持久化、续接历史）。若该会话此前已就绪，直接复用不重复初始化。
     let conv = this.switchConversation('teaching', '教学之路', 'teaching', '', '', TEACHING_AGENT_ID);
     this.teachingReady = conv.ready;
@@ -1629,7 +1670,14 @@ struct Index {
         let path: string = item['path'] ? item['path'] as string : '';
         let isCurrent: boolean = item['current'] ? item['current'] as boolean : (path === current);
         if (name.length > 0) {
-          list.push(new BlankProjectInfo(name, path, isCurrent));
+          // 卡片标题优先用 HAP 名字（AI 写进 EntryAbility_label 的，由 /blank-list 回传）；
+          // 仍是模板默认「随心」或读不到时，回退到开发目标（会话首句），再回退工程名。
+          let label: string = item['label'] ? (item['label'] as string).trim() : '';
+          if (label === '随心') {
+            label = '';
+          }
+          let goal: string = this.firstUserGoal('blank:' + name);
+          list.push(new BlankProjectInfo(name, path, isCurrent, label, goal));
         }
       }
       this.blankProjects = list;
@@ -1640,15 +1688,74 @@ struct Index {
     this.blankListLoading = false;
   }
 
-  // 随心新建流程：点「新建空白工程」→ 不再先 scaffold，而是直接进一条全新对话，
-  // 等用户第一句话（=开发目标）。名称自动用时间戳（ASCII 安全、唯一），由 AI 校验首句后
-  // 自己跑 blank_new.sh scaffold + 按目标开发 + assemble_deploy 出包。
+  // 随心 A 方案：删除单个工程副本（板端 /blank-delete 删 projects/<名>/）+ 同步清掉该副本会话，
+  // 再刷新列表。模板只读、其它副本不动。由卡片「删除」二次确认后调用。
+  async deleteBlankProject(name: string): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    if (name.length === 0) {
+      return;
+    }
+    this.blankListLoading = true;
+    try {
+      let out = await this.client.requestText(buildBlankDeleteUrl(name), http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank delete ' + name + '] ' + out + '\n';
+      // 同步清掉该副本的独立会话（持久化记录一并移除）。
+      this.deleteConversationByKey('blank:' + name);
+      promptAction.showToast({ message: '已删除工程「' + name + '」', duration: 1600 });
+    } catch (error) {
+      promptAction.showToast({
+        message: '删除失败：' + (error instanceof Error ? error.message : String(error)),
+        duration: 2200
+      });
+    }
+    this.blankListLoading = false;
+    await this.loadBlankProjects();
+  }
+
+  // 随心 A 方案：一键清空所有工程副本（板端 /blank-clear-all 清空 projects/）+ 清掉全部 blank:* 会话，
+  // 再刷新列表。模板只读不动。由「清空所有」强确认后调用。
+  async clearAllBlankProjects(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    this.blankListLoading = true;
+    try {
+      let out = await this.client.requestText(BLANK_CLEAR_ALL_URL, http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank clear-all] ' + out + '\n';
+      // 清掉所有随心副本会话（key 以 blank: 开头）。
+      for (let i = this.conversations.length - 1; i >= 0; i--) {
+        if (this.conversations[i].key.indexOf('blank:') === 0) {
+          if (this.activeConvKey === this.conversations[i].key) {
+            this.activeConvKey = '';
+          }
+          this.conversations.splice(i, 1);
+        }
+      }
+      this.persistConversations();
+      promptAction.showToast({ message: '已清空所有随心工程', duration: 1600 });
+    } catch (error) {
+      promptAction.showToast({
+        message: '清空失败：' + (error instanceof Error ? error.message : String(error)),
+        duration: 2200
+      });
+    }
+    this.blankListLoading = false;
+    await this.loadBlankProjects();
+  }
+
+  // 随心新建流程：点「新建空白工程」→ 不先 scaffold，直接进一条全新对话等用户第一句话（=开发目标）。
+  // 名称自动用时间戳（ASCII 安全、唯一）。用户发出目标后，由【前端】用这个名字确定性创建工程副本
+  // （/blank-new），再交 AI 校验+开发——AI 不参与命名，杜绝「工程名非法」与重复创建。
   async createBlankProject(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
       return;
     }
-    // 自动命名：仅用时间戳保证 ASCII 安全（blank_new.sh 会清洗非法字符，中文名会被清空报错）。
+    // 自动命名：仅用时间戳保证 ASCII 安全、唯一（前端直接拿它去 /blank-new，不依赖 AI 命名）。
     let name: string = 'blank-' + Date.now().toString();
     this.beginBlankGoalChat(name);
   }
@@ -1672,28 +1779,97 @@ struct Index {
     // 引导语由 seedGreeting('blank') 提供，新会话已自动带入，无需重复 push。
   }
 
-  // 新建随心工程的第一句话目标轮结束后调用：用 /blank-list 确认该工程是否真的被创建
-  // （AI 判定不符合要求时不会 scaffold，工程不存在）。已创建→收尾置就绪+刷新列表；未创建→继续等下一句目标。
+  // 随心：前端确定性创建工程副本（调用 /blank-new；名称由前端生成，ASCII 安全、唯一）。
+  // 返回是否创建成功，并据脚本回显设定 blankCurrentRoot（NEW_PROJECT_OK <path>）。
+  // 同名已存在（重发同一句目标命中）也视为可继续，不重复创建。
+  private async scaffoldBlankProject(name: string): Promise<boolean> {
+    if (name.length === 0) {
+      return false;
+    }
+    try {
+      let out = await this.client.requestText(buildBlankNewUrl(name), http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank new ' + name + '] ' + out + '\n';
+      let marker: string = 'NEW_PROJECT_OK ';
+      let idx: number = out.indexOf(marker);
+      if (idx >= 0) {
+        let rest: string = out.substring(idx + marker.length);
+        let nl: number = rest.indexOf('\n');
+        this.blankCurrentRoot = (nl >= 0 ? rest.substring(0, nl) : rest).trim();
+        return true;
+      }
+      // 同名工程已存在：直接复用，不算失败（防重复创建）。
+      if (out.indexOf('工程已存在') >= 0) {
+        this.blankCurrentRoot = '/data/local/tmp/blank-hapbuild/projects/' + name;
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.currentExecutionLog += '[blank new ' + name + ' ERROR] '
+        + (error instanceof Error ? error.message : String(error)) + '\n';
+      return false;
+    }
+  }
+
+  // 本轮 AI 回复是否判定「不符合要求」（含固定话术）——据此自动清理前端预创建的空工程。
+  private activeReplyHasRejection(): boolean {
+    for (let i = this.chatMessages.length - 1; i >= 0; i--) {
+      let m = this.chatMessages[i];
+      if (m.sender === 'assistant' && m.text.indexOf('不符合我的要求') >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 取某条随心会话（key=blank:<name>）里用户第一句话（=开发目标），用于工程卡片标题。
+  private firstUserGoal(key: string): string {
+    let conv = this.findConv(key);
+    if (!conv) {
+      return '';
+    }
+    for (let i = 0; i < conv.messages.length; i++) {
+      if (conv.messages[i].sender === 'user' && conv.messages[i].text.trim().length > 0) {
+        return conv.messages[i].text.trim();
+      }
+    }
+    return '';
+  }
+
   private async finalizeBlankGoalIfCreated(): Promise<void> {
     let name = this.blankNewPendingName;
     if (name.length === 0) {
       return;
     }
+    // 工程副本已由前端预创建，故必然存在；用 AI 回复是否含拒绝话术来区分「有效目标」与「不合规」。
+    let rejected = this.activeReplyHasRejection();
     await this.loadBlankProjects();
-    let created = false;
+    let exists = false;
     for (let i = 0; i < this.blankProjects.length; i++) {
       if (this.blankProjects[i].name === name) {
-        created = true;
+        exists = true;
         break;
       }
     }
-    if (created) {
+    if (rejected) {
+      // 目标不合规：删掉前端预创建的空工程，保持等待态让用户重新描述（不污染工程列表）。
+      if (exists) {
+        try {
+          let out = await this.client.requestText(buildBlankDeleteUrl(name), http.RequestMethod.GET);
+          this.currentExecutionLog += '[blank auto-cleanup ' + name + '] ' + out + '\n';
+        } catch (error) {
+          this.currentExecutionLog += '[blank auto-cleanup ' + name + ' ERROR] '
+            + (error instanceof Error ? error.message : String(error)) + '\n';
+        }
+        await this.loadBlankProjects();
+      }
+      return; // blankAwaitingGoal 保持 true
+    }
+    if (exists) {
       this.blankAwaitingGoal = false;
       this.freeDevReady = true;
       this.multiDevReadyId = 'blank';
       this.markActiveConvReady();
     }
-    // 未创建（被 AI 拒绝）：保持 blankAwaitingGoal=true，用户可再描述一次目标。
   }
 
   // 随心 A 方案：进入一个空白工程副本继续开发。isNew=true 走新建端点，否则走切换端点。
@@ -1708,10 +1884,8 @@ struct Index {
     this.blankNewPendingName = '';
     // 每个随心副本各占一条独立会话（key=blank:<name>），持久化、续接历史、互不串扰。
     let conv = this.switchConversation('blank:' + name, '随心·' + name, 'blank', 'blank', name, BLANK_PROJECT.agentId);
-    // 该副本会话此前已就绪且非新建：仍切板端当前工程指针，但跳过身份初始化，直接续接对话。
-    let resume = conv.ready && !isNew;
-    this.freeDevReady = conv.ready;
-    this.multiDevReadyId = conv.ready ? 'blank' : '';
+    // 「继续开发」进的都是板上已存在、之前已开发过的工程副本：永不重复初始化身份，
+    // 只切板端当前工程指针后直接续接对话（哪怕本地会话因重装主 HAP 被清空、conv.ready=false）。
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 1;
@@ -1720,6 +1894,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('assistant',
       (isNew ? '正在从模板新建空白工程 ' : '正在切换到空白工程 ') + name + ' 并装到板上...'));
     this.chatMessages = [...this.chatMessages];
+    let selectOk = false;
     try {
       let url: string = isNew ? buildBlankNewUrl(name) : buildBlankSelectUrl(name);
       let out = await this.client.requestText(url, http.RequestMethod.GET);
@@ -1736,6 +1911,7 @@ struct Index {
       }
       this.chatMessages.push(new ChatMessage('assistant', '空白工程「' + name + '」已就绪。'));
       this.chatMessages = [...this.chatMessages];
+      selectOk = true;
     } catch (error) {
       let msg: string = error instanceof Error ? error.message : String(error);
       this.chatMessages.push(new ChatMessage('assistant', '工程准备失败：' + msg));
@@ -1744,13 +1920,17 @@ struct Index {
     if (epoch !== this.courseEpoch) {
       return;
     }
-    if (resume) {
-      // 复用已就绪会话：不重复初始化身份，直接回到工作区续接对话。
-      this.studentQuestionEnabled = true;
+    if (!selectOk) {
+      // 切换失败（如工程不存在/脚本报错）：不置就绪，关遮罩让用户重试，绝不触发身份初始化。
       this.projectInitOverlayVisible = false;
       return;
     }
-    await this.initMultiDevIdentity(BLANK_PROJECT);
+    // 切换成功：直接续接，不重复初始化身份；标记会话就绪并持久化，下次进来同样跳过。
+    this.studentQuestionEnabled = true;
+    this.freeDevReady = true;
+    this.multiDevReadyId = 'blank';
+    this.markActiveConvReady();
+    this.projectInitOverlayVisible = false;
   }
 
   // Pre-fill states on selecting a task
@@ -2170,7 +2350,10 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0 || (this.currentMode === 'advanced' && (this.advancedScreen === 'teaching' || this.advancedScreen === 'freedev'))) {
+            // 随心（blank）工作区是副本隔离、不还原，不显示「重置开发」（删除请用列表卡片上的删除/清空）；
+            // 其它（教学/基础课/多元工程）照常显示重置。
+            if ((this.tutorialStep > 0 || (this.currentMode === 'advanced' && (this.advancedScreen === 'teaching' || this.advancedScreen === 'freedev')))
+              && !(this.currentMode === 'advanced' && this.advancedScreen === 'freedev' && this.multiDevProjectId === 'blank')) {
               Button(this.courseResetting
                 ? '正在还原项目...'
                 : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
@@ -2266,7 +2449,9 @@ struct Index {
                       blankBusy: this.openClawBusy,
                       onRefresh: () => { this.loadBlankProjects(); },
                       onContinue: (name: string) => { this.enterBlankProject(name, false); },
-                      onCreate: () => { this.createBlankProject(); }
+                      onCreate: () => { this.createBlankProject(); },
+                      onDelete: (name: string) => { this.deleteBlankProject(name); },
+                      onClearAll: () => { this.clearAllBlankProjects(); }
                     })
                   } else {
                     AdvancedMenuView({
