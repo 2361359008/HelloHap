@@ -111,6 +111,9 @@ struct Index {
   // 实时富展示：一轮进行中轮询 chat.history，把已产生的 思考/工具/结果 实时渲染到对话区。
   // historyPollActive 控制轮询循环；turnRichActive 标记本轮已被富展示接管（接管后忽略 delta 纯文本）。
   private historyPollActive: boolean = false;
+  // 轮询「代次」：每次 start/stop 自增，在途的旧 setTimeout 循环靠它自动失效，
+  // 这样每轮开始都能安全地强制重启一个干净的轮询循环，不会出现重复轮询。
+  private historyPollGen: number = 0;
   private turnRichActive: boolean = false;
   private historyShapeLogged: boolean = false;
   // 兜底完成判定：网关偶尔不下发 chat 'final' 事件，导致最终回复已显示却一直转圈。
@@ -382,33 +385,37 @@ struct Index {
 
   // 开始/停止本轮的 chat.history 轮询（递归 setTimeout，避免请求重叠）。
   private startHistoryPolling(epoch: number): void {
-    if (this.historyPollActive) {
-      return;
-    }
+    // 强制重启：自增代次令任何在途的旧循环失效，再起一个干净的新循环。
+    // 即使网关本轮不下发 chat delta/final 事件，也能靠 chat.history 渲染富集内容、
+    // 关闭全屏遮罩并在内容稳定后主动收尾，避免「最终回复已出还一直转圈」。
+    this.historyPollGen++;
+    let gen = this.historyPollGen;
     this.historyPollActive = true;
     this.turnRichActive = false;
     this.historyShapeLogged = false;
     this.lastTurnSignature = '';
     this.stableTurnPolls = 0;
-    this.scheduleHistoryPoll(epoch);
+    this.scheduleHistoryPoll(epoch, gen);
   }
 
   private stopHistoryPolling(): void {
     this.historyPollActive = false;
+    // 自增代次：让任何已排队但尚未执行的轮询回调直接失效。
+    this.historyPollGen++;
   }
 
-  private scheduleHistoryPoll(epoch: number): void {
+  private scheduleHistoryPoll(epoch: number, gen: number): void {
     setTimeout(() => {
-      if (!this.historyPollActive || epoch !== this.courseEpoch) {
+      if (!this.historyPollActive || epoch !== this.courseEpoch || gen !== this.historyPollGen) {
         return;
       }
       this.applyHistoryToTurn(epoch).then(() => {
-        if (this.historyPollActive && epoch === this.courseEpoch) {
-          this.scheduleHistoryPoll(epoch);
+        if (this.historyPollActive && epoch === this.courseEpoch && gen === this.historyPollGen) {
+          this.scheduleHistoryPoll(epoch, gen);
         }
       }).catch(() => {
-        if (this.historyPollActive && epoch === this.courseEpoch) {
-          this.scheduleHistoryPoll(epoch);
+        if (this.historyPollActive && epoch === this.courseEpoch && gen === this.historyPollGen) {
+          this.scheduleHistoryPoll(epoch, gen);
         }
       });
     }, 1500);
@@ -673,6 +680,9 @@ struct Index {
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
     let epoch = this.courseEpoch;
+    // 本轮一开始就起一个干净的历史轮询：不依赖网关是否下发 chat delta/final 事件，
+    // 富集内容一进 chat.history 就渲染并立刻关掉全屏遮罩，稳定后兜底收尾，杜绝一直转圈。
+    this.startHistoryPolling(epoch);
 
     try {
       let sendMsg = userMsg;
@@ -699,7 +709,7 @@ struct Index {
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, chatAgentId, () => { this.aiProcessingPhase = 'replying'; });
+      }, chatAgentId, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -808,11 +818,12 @@ struct Index {
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
+    this.startHistoryPolling(this.courseEpoch);
     try {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
+      }, FREEDEV_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -910,11 +921,12 @@ struct Index {
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
+    this.startHistoryPolling(this.courseEpoch);
     try {
       await this.client.startTurn(buildLogHapFlowPrompt(nextStep), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
-      }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
+      }, TEACHING_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
