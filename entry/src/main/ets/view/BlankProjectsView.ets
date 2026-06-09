@@ -72,10 +72,13 @@ export struct BlankProjectsView {
   ProjectCard(project: BlankProjectInfo) {
     Column() {
       Row() {
-        Text(project.name)
+        // 标题优先显示「开发目标」（这是什么 HAP），取不到再显示工程名。
+        Text(project.goal.length > 0 ? project.goal : project.name)
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
           .fontColor('#a6e3a1')
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
           .alignSelf(ItemAlign.Start)
 
@@ -90,6 +93,15 @@ export struct BlankProjectsView {
       }
       .width('100%')
       .margin({ bottom: 6 })
+
+      // 工程名（blank-时间戳）作为副标题，便于区分同名目标的不同副本。
+      if (project.goal.length > 0) {
+        Text(project.name)
+          .fontSize(11)
+          .fontColor('#9399b2')
+          .margin({ bottom: 2 })
+          .alignSelf(ItemAlign.Start)
+      }
 
       Text(project.path)
         .fontSize(11)

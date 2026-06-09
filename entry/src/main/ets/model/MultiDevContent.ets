@@ -253,15 +253,20 @@ export function buildMultiDevIdentityPrompt(): string {
 // AI 校验(是否为 HAP 开发需求) → 合规则调 blank_new.sh scaffold + 按目标开发 + assemble_deploy 出包。
 
 // 随心新建工程 · 第一句话目标组合 prompt（发给 blank agent）。
-// name=自动生成的工程名, dir=板端项目绝对路径, goal=用户原话。
+// name=工程名（前端已生成、ASCII 安全、唯一）, dir=板端项目绝对路径, goal=用户原话。
+// 注意：工程副本已由【前端】确定性创建好（调用 /blank-new），AI 不要再运行 blank_new.sh、
+// 不要自取/改名（杜绝「工程名非法」与重复创建多个工程）。AI 只负责「校验首句 + 按目标开发」。
 export function buildBlankGoalPrompt(name: string, dir: string, goal: string): string {
-  return '用户想从零开发一个 HAP，目标如下。请严格判断这是否是一个「要开发某种功能的鸿蒙 HAP 应用」的需求：\n\n'
-    + '━ 如果**不是**（如闲聊、与开发 HAP 无关、无法理解要做什么应用）：只回复一句「不符合我的要求：请用一句话描述你想开发的 HAP 应用功能，例如"做一个待办清单 HAP"。」不要执行任何脚本、不要创建工程。\n\n'
-    + '━ 如果**是**，请按下面步骤创建并开发这个 HAP：\n'
-    + '  1) 先执行初始化脚本创建工程副本：sh /data/local/tmp/blank-hapbuild/blank_new.sh ' + name + '\n'
-    + '  2) 仅在 ' + dir + '/entry/src/main/ets/pages/Index.ets 内按目标开发（ArkUI/ArkTS），不动 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets，也不动 template/ 或 projects/ 下其它工程。\n'
-    + '  3) 开发完执行出包上板：sh /data/local/tmp/assemble_deploy.sh ' + dir + '\n'
-    + '  4) 完成后简要汇报你创建了什么、改了哪些内容。\n\n'
+  return '用户想从零开发一个 HAP。工程副本「' + name + '」已经由系统创建好在：' + dir + '\n'
+    + '（你**不要**再运行 blank_new.sh，也**不要**改工程名或新建别的工程目录。）\n\n'
+    + '请先严格判断下面这句是不是一个「要开发某种功能的鸿蒙 HAP 应用」的需求：\n\n'
+    + '━ 如果**不是**（闲聊、问候、与开发 HAP 无关、无法理解要做什么应用）：**只回复这一句**，不要执行任何脚本、不要开发：\n'
+    + '  「不符合我的要求：请用一句话描述你想开发的 HAP 应用功能，例如"做一个待办清单 HAP"。」\n'
+    + '  （系统会据此自动清理这个空工程，请务必原样回复这句话。）\n\n'
+    + '━ 如果**是**，请按下面开发这个 HAP（不要再创建工程）：\n'
+    + '  1) 仅在 ' + dir + '/entry/src/main/ets/pages/Index.ets 内按目标开发（ArkUI/ArkTS），不动 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets，也不动 template/ 或 projects/ 下其它工程。\n'
+    + '  2) 开发完执行出包上板：sh /data/local/tmp/assemble_deploy.sh ' + dir + '\n'
+    + '  3) 完成后简要汇报你创建了什么、改了哪些内容。\n\n'
     + '用户目标：' + goal;
 }
 
@@ -282,13 +287,15 @@ export const BLANK_CLEAR_ALL_URL: string = BRIDGE + '/blank-clear-all';
 
 // 一个随心工程副本的信息（由 /blank-list 返回的 JSON 解析而来）。
 export class BlankProjectInfo {
-  name: string;     // 工程名（projects/ 下的目录名）
+  name: string;     // 工程名（projects/ 下的目录名，形如 blank-时间戳）
   path: string;     // 板上绝对路径
   isCurrent: boolean; // 是否为当前激活工程
+  goal: string;     // 该工程的开发目标（用户第一句话），用于卡片标题；取自本地会话记录，可能为空
 
-  constructor(name: string, path: string, isCurrent: boolean) {
+  constructor(name: string, path: string, isCurrent: boolean, goal: string = '') {
     this.name = name;
     this.path = path;
     this.isCurrent = isCurrent;
+    this.goal = goal;
   }
 }

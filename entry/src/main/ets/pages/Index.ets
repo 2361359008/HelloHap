@@ -958,7 +958,20 @@ struct Index {
     try {
       let sendMsg = userMsg;
       if (isBlankGoal) {
-        // 新建随心工程的第一句话=开发目标：组合校验+创建+开发的 prompt 发给 blank agent。
+        // 工程副本由【前端】确定性创建（名称 ASCII 安全、唯一、只建一次），AI 只负责校验+开发。
+        // 这样杜绝 AI 自取中文名导致「工程名非法」、以及 AI 重试时反复 scaffold 出多个工程。
+        let scaffolded = await this.scaffoldBlankProject(this.blankNewPendingName);
+        if (!scaffolded) {
+          this.chatMessages.push(new ChatMessage('assistant',
+            '工程创建失败，请检查与板子的连接后，重新发送你的开发目标再试一次。', 'text', '', '', true));
+          this.chatMessages = [...this.chatMessages];
+          this.openClawBusy = false;
+          this.blankCreatingOverlayVisible = false;
+          this.stopHistoryPolling();
+          this.persistConversations();
+          return;
+        }
+        // 新建随心工程的第一句话=开发目标：组合校验+开发的 prompt 发给 blank agent（不含创建步骤）。
         sendMsg = buildBlankGoalPrompt(this.blankNewPendingName, this.blankCurrentRoot, userMsg);
       } else if (this.selectedTaskIndex === 4 && userMsg === '请将 HAP 主页面内容修改为 hello world，然后按完整流程执行：编译未签名 HAP、签名生成已签名 HAP、卸载旧应用、安装新 HAP 并启动 EntryAbility。请在执行前说明会修改的文件和命令边界，执行后汇报每一步真实结果。') {
         sendMsg = buildPracticeFullFlowPrompt();
@@ -1656,7 +1669,9 @@ struct Index {
         let path: string = item['path'] ? item['path'] as string : '';
         let isCurrent: boolean = item['current'] ? item['current'] as boolean : (path === current);
         if (name.length > 0) {
-          list.push(new BlankProjectInfo(name, path, isCurrent));
+          // 卡片标题用「开发目标」（取自该副本会话的用户第一句话），取不到再退回工程名。
+          let goal: string = this.firstUserGoal('blank:' + name);
+          list.push(new BlankProjectInfo(name, path, isCurrent, goal));
         }
       }
       this.blankProjects = list;
@@ -1726,15 +1741,15 @@ struct Index {
     await this.loadBlankProjects();
   }
 
-  // 随心新建流程：点「新建空白工程」→ 不再先 scaffold，而是直接进一条全新对话，
-  // 等用户第一句话（=开发目标）。名称自动用时间戳（ASCII 安全、唯一），由 AI 校验首句后
-  // 自己跑 blank_new.sh scaffold + 按目标开发 + assemble_deploy 出包。
+  // 随心新建流程：点「新建空白工程」→ 不先 scaffold，直接进一条全新对话等用户第一句话（=开发目标）。
+  // 名称自动用时间戳（ASCII 安全、唯一）。用户发出目标后，由【前端】用这个名字确定性创建工程副本
+  // （/blank-new），再交 AI 校验+开发——AI 不参与命名，杜绝「工程名非法」与重复创建。
   async createBlankProject(): Promise<void> {
     if (this.openClawBusy) {
       promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
       return;
     }
-    // 自动命名：仅用时间戳保证 ASCII 安全（blank_new.sh 会清洗非法字符，中文名会被清空报错）。
+    // 自动命名：仅用时间戳保证 ASCII 安全、唯一（前端直接拿它去 /blank-new，不依赖 AI 命名）。
     let name: string = 'blank-' + Date.now().toString();
     this.beginBlankGoalChat(name);
   }
@@ -1758,28 +1773,97 @@ struct Index {
     // 引导语由 seedGreeting('blank') 提供，新会话已自动带入，无需重复 push。
   }
 
-  // 新建随心工程的第一句话目标轮结束后调用：用 /blank-list 确认该工程是否真的被创建
-  // （AI 判定不符合要求时不会 scaffold，工程不存在）。已创建→收尾置就绪+刷新列表；未创建→继续等下一句目标。
+  // 随心：前端确定性创建工程副本（调用 /blank-new；名称由前端生成，ASCII 安全、唯一）。
+  // 返回是否创建成功，并据脚本回显设定 blankCurrentRoot（NEW_PROJECT_OK <path>）。
+  // 同名已存在（重发同一句目标命中）也视为可继续，不重复创建。
+  private async scaffoldBlankProject(name: string): Promise<boolean> {
+    if (name.length === 0) {
+      return false;
+    }
+    try {
+      let out = await this.client.requestText(buildBlankNewUrl(name), http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank new ' + name + '] ' + out + '\n';
+      let marker: string = 'NEW_PROJECT_OK ';
+      let idx: number = out.indexOf(marker);
+      if (idx >= 0) {
+        let rest: string = out.substring(idx + marker.length);
+        let nl: number = rest.indexOf('\n');
+        this.blankCurrentRoot = (nl >= 0 ? rest.substring(0, nl) : rest).trim();
+        return true;
+      }
+      // 同名工程已存在：直接复用，不算失败（防重复创建）。
+      if (out.indexOf('工程已存在') >= 0) {
+        this.blankCurrentRoot = '/data/local/tmp/blank-hapbuild/projects/' + name;
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.currentExecutionLog += '[blank new ' + name + ' ERROR] '
+        + (error instanceof Error ? error.message : String(error)) + '\n';
+      return false;
+    }
+  }
+
+  // 本轮 AI 回复是否判定「不符合要求」（含固定话术）——据此自动清理前端预创建的空工程。
+  private activeReplyHasRejection(): boolean {
+    for (let i = this.chatMessages.length - 1; i >= 0; i--) {
+      let m = this.chatMessages[i];
+      if (m.sender === 'assistant' && m.text.indexOf('不符合我的要求') >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 取某条随心会话（key=blank:<name>）里用户第一句话（=开发目标），用于工程卡片标题。
+  private firstUserGoal(key: string): string {
+    let conv = this.findConv(key);
+    if (!conv) {
+      return '';
+    }
+    for (let i = 0; i < conv.messages.length; i++) {
+      if (conv.messages[i].sender === 'user' && conv.messages[i].text.trim().length > 0) {
+        return conv.messages[i].text.trim();
+      }
+    }
+    return '';
+  }
+
   private async finalizeBlankGoalIfCreated(): Promise<void> {
     let name = this.blankNewPendingName;
     if (name.length === 0) {
       return;
     }
+    // 工程副本已由前端预创建，故必然存在；用 AI 回复是否含拒绝话术来区分「有效目标」与「不合规」。
+    let rejected = this.activeReplyHasRejection();
     await this.loadBlankProjects();
-    let created = false;
+    let exists = false;
     for (let i = 0; i < this.blankProjects.length; i++) {
       if (this.blankProjects[i].name === name) {
-        created = true;
+        exists = true;
         break;
       }
     }
-    if (created) {
+    if (rejected) {
+      // 目标不合规：删掉前端预创建的空工程，保持等待态让用户重新描述（不污染工程列表）。
+      if (exists) {
+        try {
+          let out = await this.client.requestText(buildBlankDeleteUrl(name), http.RequestMethod.GET);
+          this.currentExecutionLog += '[blank auto-cleanup ' + name + '] ' + out + '\n';
+        } catch (error) {
+          this.currentExecutionLog += '[blank auto-cleanup ' + name + ' ERROR] '
+            + (error instanceof Error ? error.message : String(error)) + '\n';
+        }
+        await this.loadBlankProjects();
+      }
+      return; // blankAwaitingGoal 保持 true
+    }
+    if (exists) {
       this.blankAwaitingGoal = false;
       this.freeDevReady = true;
       this.multiDevReadyId = 'blank';
       this.markActiveConvReady();
     }
-    // 未创建（被 AI 拒绝）：保持 blankAwaitingGoal=true，用户可再描述一次目标。
   }
 
   // 随心 A 方案：进入一个空白工程副本继续开发。isNew=true 走新建端点，否则走切换端点。
