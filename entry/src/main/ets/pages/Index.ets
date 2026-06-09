@@ -119,7 +119,9 @@ struct Index {
   @State blankNewName: string = ''; // 新建工程名输入（已弃用文本框，保留兼容 BlankProjectsView @Link）
   @State blankCurrentRoot: string = ''; // 当前激活的空白工程绝对路径（源码浏览/构建按此工程）
   @State blankAwaitingGoal: boolean = false; // 新建随心工程：等待用户第一句话（=开发目标）
-  @State blankCreatingOverlayVisible: boolean = false; // 随心「项目创建中」全屏动画遮罩
+  // 随心「项目创建中」全屏动画遮罩：发出开发目标后显示，OpenClaw 一开始输出内容
+  // （首个非空文本 delta 或富集内容）就立即关闭，不等整轮校验+scaffold+出包跑完。
+  @State blankCreatingOverlayVisible: boolean = false;
   private blankNewPendingName: string = ''; // 新建随心工程待定名称（auto-generated）
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
@@ -560,6 +562,10 @@ struct Index {
       if (this.aiProcessingOverlayVisible && text.trim() !== '') {
         this.aiProcessingOverlayVisible = false;
       }
+      // 随心「项目创建中」遮罩同理：AI 一开始输出内容就关闭，不再等整轮（校验+scaffold+出包）跑完。
+      if (this.blankCreatingOverlayVisible && text.trim() !== '') {
+        this.blankCreatingOverlayVisible = false;
+      }
       // 已被富展示接管：纯文本由轮询/最终补全，跳过以免与分段气泡相互覆盖闪烁。
       if (this.turnRichActive) {
         return;
@@ -766,6 +772,10 @@ struct Index {
       }
       if (this.projectInitOverlayVisible) {
         this.projectInitOverlayVisible = false;
+      }
+      // 随心「项目创建中」遮罩：富集内容（思考/工具/结果）一出现就关闭，改由对话区内联展示承载。
+      if (this.blankCreatingOverlayVisible) {
+        this.blankCreatingOverlayVisible = false;
       }
       // 注意：不在此处依据「历史文本稳定」判定整轮结束。openClawBusy（发送键忙态 +
       // 顶部「AI 正在处理」）必须保持到收到真实终态事件，避免长编译/工具等待/阶段性
