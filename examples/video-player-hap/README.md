@@ -7,8 +7,9 @@
 - 包名：`com.openclaw.videoplayer`
 - API：OpenHarmony 23（Stage 模型）
 - 入口：`entry/src/main/ets/pages/Index.ets`
-- 权限：`ohos.permission.INTERNET`（播放网络视频需要；本地 rawfile 播放可不依赖网络）
-- 默认片源：`https://media.w3.org/2010/05/sintel/trailer.mp4`（公共测试视频，可在界面里换成你自己的地址）
+- 权限：`ohos.permission.INTERNET`（播放网络视频需要；内置 rawfile 播放可不依赖网络）
+- 内置片源：`entry/src/main/resources/rawfile/welcome.mp4`（仓库 `videos/openharmony-hap-welcome-updated.mp4`），首页默认 `src = $rawfile('welcome.mp4')`，一进去就播放
+- 也可在界面输入框粘贴 http/https 网络地址临时切换，「内置视频」按钮一键切回内置片源
 
 ## 构建（在板端 linux-env 容器内编译 + 签名 + 安装 + 启动）
 

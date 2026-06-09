@@ -6,11 +6,12 @@
 @Entry
 @Component
 struct Index {
-  // 默认示例视频（公共测试片源）。换成你自己的网络地址或本地 rawfile 即可。
-  @State videoSrc: string = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
-  @State urlInput: string = 'https://media.w3.org/2010/05/sintel/trailer.mp4';
+  // 默认播放工程内置的欢迎视频（entry/src/main/resources/rawfile/welcome.mp4）。
+  // src 同时支持 Resource（内置 rawfile）与 string（http/https 网络地址）。
+  @State videoSrc: Resource | string = $rawfile('welcome.mp4');
+  @State urlInput: string = '';
   @State isPlaying: boolean = false;
-  @State statusText: string = '准备就绪';
+  @State statusText: string = '已加载内置视频';
   @State currentTime: number = 0;
   @State durationTime: number = 0;
 
@@ -118,6 +119,20 @@ struct Index {
             this.isPlaying = false;
             this.currentTime = 0;
             this.statusText = '已停止';
+          })
+
+        Button('内置视频')
+          .width(96)
+          .height(40)
+          .fontSize(14)
+          .backgroundColor('#FAB387')
+          .fontColor('#11151C')
+          .margin({ left: 16 })
+          .onClick(() => {
+            this.videoSrc = $rawfile('welcome.mp4');
+            this.currentTime = 0;
+            this.durationTime = 0;
+            this.statusText = '已加载内置视频';
           })
       }
       .margin({ top: 16 })
