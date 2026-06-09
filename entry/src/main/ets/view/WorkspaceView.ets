@@ -54,7 +54,7 @@ export struct WorkspaceView {
   @Link workspaceTab: number;
   @Prop selectedTaskIndex: number;
   @Prop currentMode: string;
-  @Link chatMessages: Array<ChatMessage>;
+  @Link @Watch('onChatMessagesChanged') chatMessages: Array<ChatMessage>;
   @Prop sourceFileLoading: boolean;
   @Prop sourceFileError: string;
   @Prop sourceText: string;
@@ -65,6 +65,8 @@ export struct WorkspaceView {
   @Prop advancedFilesLoading: boolean;
   @Prop advancedFilesError: string;
   @Prop selectedSourceFile: string;
+  // OpenClaw 是否正在处理（驱动顶部「AI 助手正在处理…」左右动画与忙态展示）。
+  @Prop @Watch('onOpenClawBusyChange') openClawBusy: boolean;
   onSelectSourceTab: () => void = () => {};
   onRefreshSource: () => void = () => {};
   onSelectAdvancedFile: (path: string) => void = () => {};
@@ -72,6 +74,37 @@ export struct WorkspaceView {
   // 文件树弹窗的显隐与已展开目录（相对路径）。
   @State showFileTree: boolean = false;
   @State expandedDirs: string[] = [];
+  // 顶部「AI 助手正在处理…」左右往返动画的水平位移量（px）。
+  @State busyShift: number = 0;
+  // 对话区滚动控制器：新消息/流式更新到达时自动滚到底部，跟随最新对话。
+  private chatScroller: Scroller = new Scroller();
+
+  // chatMessages 变化（新消息或流式更新）时，延迟到布局完成后把对话区滚到底部。
+  onChatMessagesChanged(): void {
+    setTimeout(() => { this.chatScroller.scrollEdge(Edge.Bottom); }, 60);
+  }
+
+  aboutToAppear(): void {
+    if (this.openClawBusy) {
+      this.startBusyAnim();
+    }
+  }
+
+  // openClawBusy 变化时驱动顶部提示左右往返：忙时无限交替平移，空闲时复位。
+  onOpenClawBusyChange(): void {
+    if (this.openClawBusy) {
+      this.startBusyAnim();
+    } else {
+      animateTo({ duration: 0 }, () => { this.busyShift = 0; });
+    }
+  }
+
+  private startBusyAnim(): void {
+    this.busyShift = 0;
+    animateTo({ duration: 760, curve: Curve.EaseInOut, iterations: -1, playMode: PlayMode.Alternate }, () => {
+      this.busyShift = 40;
+    });
+  }
 
   // 高级关卡源码区右侧内容文本（根据加载/错误/选中状态计算）。
   private advancedSourceDisplay(): string {
@@ -230,6 +263,19 @@ export struct WorkspaceView {
                 .fontColor('#f38ba8')
                 .fontWeight(FontWeight.Bold)
                 .margin({ left: 8 })
+              if (this.openClawBusy) {
+                // 处理中：转圈 + 左右往返移动的「AI 助手正在处理…」
+                Row() {
+                  LoadingProgress()
+                    .width(14).height(14).color('#f9e2af')
+                  Text('AI 助手正在处理…')
+                    .fontSize(11).fontColor('#f9e2af').fontWeight(FontWeight.Bold)
+                    .margin({ left: 6 })
+                    .translate({ x: this.busyShift })
+                }
+                .margin({ left: 12 })
+                .alignItems(VerticalAlign.Center)
+              }
               Blank()
               Text('qwen3.7-max')
                 .fontSize(11)
@@ -252,7 +298,7 @@ export struct WorkspaceView {
             .borderWidth({ bottom: 1 })
             .borderColor('#313244')
 
-            Scroll() {
+            Scroll(this.chatScroller) {
               Column() {
                 if (this.selectedTaskIndex === 0 && this.currentMode !== 'advanced') {
                   Column() {
