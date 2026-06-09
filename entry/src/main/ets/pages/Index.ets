@@ -146,6 +146,9 @@ struct Index {
   private historyPollGen: number = 0;
   private turnRichActive: boolean = false;
   private historyShapeLogged: boolean = false;
+  // 本轮对话所属的重置代际。退出工作区时自增 courseEpoch，使在途轮次的流式事件被忽略，
+  // 不再写入到已切换的其它会话（避免「退出后旧轮回复串到新页面」）。
+  private chatTurnEpoch: number = -1;
 
   aboutToAppear(): void {
     this.client.onChatEvent = (payload: Record<string, Object>) => {
@@ -337,6 +340,21 @@ struct Index {
     this.persistConversations();
   }
 
+  // 退出工作区（返回主页 / 上一级）时的收尾：即使 OpenClaw 仍在处理也允许退出，不再卡死。
+  // 先把当前会话已产生的内容回写持久化，再自增代际让在途轮次的迟到事件被忽略
+  // （见 handleChatStreamEvent 守卫），并停掉本页轮询与忙态遮罩；网络轮次在后台自然结束，
+  // 历史已写入会话记录，下次进入该会话仍可续接。
+  private leaveWorkspaceCleanup(): void {
+    if (this.openClawBusy || this.aiProcessingOverlayVisible || this.projectInitOverlayVisible || this.historyPollActive) {
+      this.persistConversations();
+      this.stopHistoryPolling();
+      this.courseEpoch++;
+      this.openClawBusy = false;
+      this.aiProcessingOverlayVisible = false;
+      this.projectInitOverlayVisible = false;
+    }
+  }
+
   // Async helper for delays
   delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -476,6 +494,11 @@ struct Index {
   }
 
   handleChatStreamEvent(payload: Record<string, Object>) {
+    // 退出守卫：若本轮所属代际已与当前不一致（用户已退出工作区/已重置），忽略其迟到的流式事件，
+    // 不把旧轮内容写到已切换的其它会话页面。
+    if (this.chatTurnEpoch !== this.courseEpoch) {
+      return;
+    }
     // 项目初始化遮罩：一旦 OpenClaw 开始返回（首个事件）即结束。
     // 注意：对话处理遮罩 aiProcessingOverlayVisible 不在这里「收到任意事件就关」（太早会闪），
     // 而是改由「结构化内容首次出现」关闭——见 delta 分支（非空 text）与 applyHistoryToTurn（思考/工具/结果）。
@@ -622,6 +645,7 @@ struct Index {
     // （chat final/complete/done/end/finished 或 error/aborted）清除，不再因历史文本稳定就提前解锁。
     this.historyPollGen++;
     let gen = this.historyPollGen;
+    this.chatTurnEpoch = epoch; // 记录本轮代际，供退出守卫忽略迟到事件
     this.historyPollActive = true;
     this.turnRichActive = false;
     this.historyShapeLogged = false;
@@ -974,6 +998,7 @@ struct Index {
     this.chatInput = '';
     this.chatMessages.push(new ChatMessage('user', '【多元开发】初始化' + project.title + '身份'));
     this.openClawBusy = true;
+    this.chatTurnEpoch = epoch;
     try {
       // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
       let raceResult = await Promise.race([
@@ -1073,6 +1098,7 @@ struct Index {
     this.chatInput = '';
     this.chatMessages.push(new ChatMessage('user', '【教学之路】初始化日志 HAP 课程讲师身份'));
     this.openClawBusy = true;
+    this.chatTurnEpoch = epoch;
     try {
       // 与 60s 超时哨兵竞速：网关迟迟不响应时不至于无限卡在初始化遮罩。
       let raceResult = await Promise.race([
@@ -1810,6 +1836,7 @@ struct Index {
     this.currentExecutionLog = '[info] OpenClaw Agent gateway handoff starting...\n';
     this.studentQuestionEnabled = false;
     this.openClawBusy = true;
+    this.chatTurnEpoch = epoch;
     this.step1Status = 1;
     this.step2Status = 0;
     this.step3Status = 0;
@@ -1974,7 +2001,7 @@ struct Index {
               .backgroundColor('#45475a')
               .fontColor('#cdd6f4')
               .borderRadius(8)
-              .onClick(() => { this.currentMode = ''; })
+              .onClick(() => { this.leaveWorkspaceCleanup(); this.currentMode = ''; })
 
             if (this.currentMode === 'advanced' && this.advancedScreen !== 'menu') {
               // 上一级：freedev → 工程列表/高级菜单；多元开发列表 → 首页(顶层进入)或高级菜单；教学 → 高级菜单。
@@ -1985,8 +2012,10 @@ struct Index {
                 .fontColor('#cdd6f4')
                 .borderRadius(8)
                 .margin({ left: 8 })
-                .enabled(!this.openClawBusy && !this.courseResetting)
+                .enabled(!this.courseResetting)
                 .onClick(() => {
+                  // 即使 OpenClaw 仍在处理也允许退出：先收尾（持久化+解除忙态），再返回。
+                  this.leaveWorkspaceCleanup();
                   if (this.advancedScreen === 'freedev') {
                     if (this.multiDevProjectId === 'blank') {
                       this.advancedScreen = 'blanklist';
@@ -2086,7 +2115,7 @@ struct Index {
                       teachingBusy: this.openClawBusy,
                       teachingFlowStep: this.teachingFlowStep,
                       teachingFlowTotal: 6,
-                      onBack: () => { this.advancedScreen = 'menu'; },
+                      onBack: () => { this.leaveWorkspaceCleanup(); this.advancedScreen = 'menu'; },
                       onReinitIdentity: () => { this.initTeachingIdentity(); },
                       onEnterNextFlow: () => { this.enterNextLogHapFlow(); }
                     })
