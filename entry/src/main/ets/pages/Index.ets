@@ -709,7 +709,7 @@ struct Index {
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, chatAgentId, () => { this.aiProcessingPhase = 'replying'; });
+      }, chatAgentId, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -823,7 +823,7 @@ struct Index {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
+      }, FREEDEV_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -926,7 +926,7 @@ struct Index {
       await this.client.startTurn(buildLogHapFlowPrompt(nextStep), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
-      }, TEACHING_AGENT_ID, () => { this.aiProcessingPhase = 'replying'; });
+      }, TEACHING_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
