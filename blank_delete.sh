@@ -14,12 +14,11 @@ CURRENT="$ROOT/current.txt"
 
 NAME_RAW="${1:-}"
 [ -n "$NAME_RAW" ] || { echo "ERROR: 缺工程名。用法: blank_delete.sh <工程名>" >&2; exit 2; }
-# 只保留安全字符并把空格转连字符，避免路径穿越。
-NAME="$(echo "$NAME_RAW" | tr ' ' '-' | sed 's/[^A-Za-z0-9_.-]//g')"
-[ -n "$NAME" ] || { echo "ERROR: 工程名非法" >&2; exit 2; }
-# 进一步防穿越：拒绝 . / .. 这类名字。
+# 校验工程名：只允许字母/数字/下划线/点/连字符并防路径穿越（纯 shell case，板上可能没有 tr/sed）。
+NAME="$NAME_RAW"
 case "$NAME" in
-  .|..|*/*) echo "ERROR: 工程名非法" >&2; exit 2 ;;
+  ''|.|..|*/*|*[!A-Za-z0-9_.-]*)
+    echo "ERROR: 工程名非法（仅允许字母数字及 . _ -）: $NAME_RAW" >&2; exit 2 ;;
 esac
 
 DEST="$PROJECTS/$NAME"

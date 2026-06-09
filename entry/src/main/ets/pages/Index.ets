@@ -1555,6 +1555,7 @@ struct Index {
     }
     this.blankAwaitingGoal = false; // 进入教学，清掉「等随心首句目标」态。
     this.blankNewPendingName = '';
+    this.multiDevProjectId = ''; // 离开随心/多元，清掉工程标识（否则会误隐藏教学的「重置课程」）。
     // 切到「教学之路」的独立会话（持久化、续接历史）。若该会话此前已就绪，直接复用不重复初始化。
     let conv = this.switchConversation('teaching', '教学之路', 'teaching', '', '', TEACHING_AGENT_ID);
     this.teachingReady = conv.ready;
@@ -1883,10 +1884,8 @@ struct Index {
     this.blankNewPendingName = '';
     // 每个随心副本各占一条独立会话（key=blank:<name>），持久化、续接历史、互不串扰。
     let conv = this.switchConversation('blank:' + name, '随心·' + name, 'blank', 'blank', name, BLANK_PROJECT.agentId);
-    // 该副本会话此前已就绪且非新建：仍切板端当前工程指针，但跳过身份初始化，直接续接对话。
-    let resume = conv.ready && !isNew;
-    this.freeDevReady = conv.ready;
-    this.multiDevReadyId = conv.ready ? 'blank' : '';
+    // 「继续开发」进的都是板上已存在、之前已开发过的工程副本：永不重复初始化身份，
+    // 只切板端当前工程指针后直接续接对话（哪怕本地会话因重装主 HAP 被清空、conv.ready=false）。
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 1;
@@ -1895,6 +1894,7 @@ struct Index {
     this.chatMessages.push(new ChatMessage('assistant',
       (isNew ? '正在从模板新建空白工程 ' : '正在切换到空白工程 ') + name + ' 并装到板上...'));
     this.chatMessages = [...this.chatMessages];
+    let selectOk = false;
     try {
       let url: string = isNew ? buildBlankNewUrl(name) : buildBlankSelectUrl(name);
       let out = await this.client.requestText(url, http.RequestMethod.GET);
@@ -1911,6 +1911,7 @@ struct Index {
       }
       this.chatMessages.push(new ChatMessage('assistant', '空白工程「' + name + '」已就绪。'));
       this.chatMessages = [...this.chatMessages];
+      selectOk = true;
     } catch (error) {
       let msg: string = error instanceof Error ? error.message : String(error);
       this.chatMessages.push(new ChatMessage('assistant', '工程准备失败：' + msg));
@@ -1919,13 +1920,17 @@ struct Index {
     if (epoch !== this.courseEpoch) {
       return;
     }
-    if (resume) {
-      // 复用已就绪会话：不重复初始化身份，直接回到工作区续接对话。
-      this.studentQuestionEnabled = true;
+    if (!selectOk) {
+      // 切换失败（如工程不存在/脚本报错）：不置就绪，关遮罩让用户重试，绝不触发身份初始化。
       this.projectInitOverlayVisible = false;
       return;
     }
-    await this.initMultiDevIdentity(BLANK_PROJECT);
+    // 切换成功：直接续接，不重复初始化身份；标记会话就绪并持久化，下次进来同样跳过。
+    this.studentQuestionEnabled = true;
+    this.freeDevReady = true;
+    this.multiDevReadyId = 'blank';
+    this.markActiveConvReady();
+    this.projectInitOverlayVisible = false;
   }
 
   // Pre-fill states on selecting a task
@@ -2345,7 +2350,10 @@ struct Index {
 
             Blank()
 
-            if (this.tutorialStep > 0 || (this.currentMode === 'advanced' && (this.advancedScreen === 'teaching' || this.advancedScreen === 'freedev'))) {
+            // 随心（blank）工作区是副本隔离、不还原，不显示「重置开发」（删除请用列表卡片上的删除/清空）；
+            // 其它（教学/基础课/多元工程）照常显示重置。
+            if ((this.tutorialStep > 0 || (this.currentMode === 'advanced' && (this.advancedScreen === 'teaching' || this.advancedScreen === 'freedev')))
+              && !(this.currentMode === 'advanced' && this.advancedScreen === 'freedev' && this.multiDevProjectId === 'blank')) {
               Button(this.courseResetting
                 ? '正在还原项目...'
                 : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
