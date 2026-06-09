@@ -1,6 +1,7 @@
 // 随心自由开发 · 工程列表视图（A 方案）
 // 进入「随心自由开发」先到这里：列出已有空白工程副本卡片（点「继续开发」继续），
-// 以及一个「＋ 新建空白工程」（输入名字后从只读模板复制出新副本再进入）。
+// 以及一个「＋ 新建空白工程」按钮：点击直接进新对话，用第一句话描述开发目标，
+// 由 AI 校验后自动创建工程副本（不再先输工程名）。
 // 模板只读、旧工程全部保留、绝不清空开发记录。
 // 返回上一级（多元开发列表）由顶部工具栏统一处理。
 
@@ -90,7 +91,7 @@ export struct BlankProjectsView {
           .margin({ bottom: 12 })
           .alignSelf(ItemAlign.Start)
 
-        // 新建空白工程
+        // 新建空白工程：直接进新对话，用第一句话描述目标，AI 校验后自动创建。
         Column() {
           Text('＋ 新建空白工程')
             .fontSize(14)
@@ -99,18 +100,14 @@ export struct BlankProjectsView {
             .margin({ bottom: 8 })
             .alignSelf(ItemAlign.Start)
 
-          TextInput({ placeholder: '工程名（字母/数字/-_，留空则用时间戳）', text: this.blankNewName })
-            .width('100%')
-            .height(36)
-            .fontSize(12)
-            .backgroundColor('#1e1e2e')
-            .fontColor('#cdd6f4')
-            .borderRadius(6)
+          Text('点下方按钮直接进入对话，第一句话告诉我你想做的 HAP（例：做一个待办清单 HAP），我会校验后自动创建工程并按目标开发。')
+            .fontSize(11)
+            .fontColor('#a6adc8')
+            .lineHeight(15)
             .margin({ bottom: 10 })
-            .enabled(!this.blankBusy)
-            .onChange((value: string) => { this.blankNewName = value; })
+            .alignSelf(ItemAlign.Start)
 
-          Button(this.blankBusy ? '处理中...' : '从模板新建并进入')
+          Button(this.blankBusy ? '处理中...' : '新建空白工程并描述目标')
             .width('100%')
             .height(36)
             .fontSize(12)

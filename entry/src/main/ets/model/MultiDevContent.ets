@@ -196,7 +196,21 @@ export function buildMultiDevIdentityPrompt(): string {
 
 // ===== 随心（blank）A 方案：副本隔离的多工程 =====
 // 模板只读；每个工程一个独立副本目录 projects/<名字>/；current.txt 指当前激活工程。
-// 进入随心时先列已有工程卡片 + 「＋ 新建空白工程」：点已有继续、点新建才复制模板。
+// 新建流程：点「新建空白工程」→ 直接进对话(自动命名) → 用户第一句话=开发目标 →
+// AI 校验(是否为 HAP 开发需求) → 合规则调 blank_new.sh scaffold + 按目标开发 + assemble_deploy 出包。
+
+// 随心新建工程 · 第一句话目标组合 prompt（发给 blank agent）。
+// name=自动生成的工程名, dir=板端项目绝对路径, goal=用户原话。
+export function buildBlankGoalPrompt(name: string, dir: string, goal: string): string {
+  return '用户想从零开发一个 HAP，目标如下。请严格判断这是否是一个「要开发某种功能的鸿蒙 HAP 应用」的需求：\n\n'
+    + '━ 如果**不是**（如闲聊、与开发 HAP 无关、无法理解要做什么应用）：只回复一句「不符合我的要求：请用一句话描述你想开发的 HAP 应用功能，例如"做一个待办清单 HAP"。」不要执行任何脚本、不要创建工程。\n\n'
+    + '━ 如果**是**，请按下面步骤创建并开发这个 HAP：\n'
+    + '  1) 先执行初始化脚本创建工程副本：sh /data/local/tmp/blank-hapbuild/blank_new.sh ' + name + '\n'
+    + '  2) 仅在 ' + dir + '/entry/src/main/ets/pages/Index.ets 内按目标开发（ArkUI/ArkTS），不动 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets，也不动 template/ 或 projects/ 下其它工程。\n'
+    + '  3) 开发完执行出包上板：sh /data/local/tmp/assemble_deploy.sh ' + dir + '\n'
+    + '  4) 完成后简要汇报你创建了什么、改了哪些内容。\n\n'
+    + '用户目标：' + goal;
+}
 
 // shell-bridge 随心多工程端点。
 export const BLANK_LIST_URL: string = BRIDGE + '/blank-list';
