@@ -515,7 +515,7 @@ struct Index {
     this.stopHistoryPolling();
     this.lastTurnSignature = '';
     this.stableTurnPolls = 0;
-    this.client.completeTurn(finalText);
+    this.client.completeTurnFromHistory(finalText);
     this.studentQuestionEnabled = true;
     this.openClawBusy = false;
     this.seenChatEventShapes.clear();

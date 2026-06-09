@@ -115,11 +115,13 @@ export class OpenClawEmptyParams {
 // 网关要求必须带 sessionKey，否则报 "invalid chat.abort params: must have required property 'sessionKey'"。
 export class OpenClawAbortParams {
   sessionKey: string = '';
-  runId: string = '';
+  runId?: string;
 
-  constructor(sessionKey: string, runId: string) {
+  constructor(sessionKey: string, runId: string = '') {
     this.sessionKey = sessionKey;
-    this.runId = runId;
+    if (runId) {
+      this.runId = runId;
+    }
   }
 }
 

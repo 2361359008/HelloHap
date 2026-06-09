@@ -417,6 +417,16 @@ export class OpenClawClient {
   // 由页面在收到 chat 'final' 事件时调用，解析当前对话轮次。
   completeTurn(text: string): void {
     this.activeRunId = '';
+    this.resolveTurn(text);
+  }
+
+  // history 稳定性只能证明 UI 已有可展示的最终文本，不能证明网关 run 已真正结束。
+  // 因此这里只解除页面等待，保留 activeRunId，供随后「重置开发」可靠发送 chat.abort。
+  completeTurnFromHistory(text: string): void {
+    this.resolveTurn(text);
+  }
+
+  private resolveTurn(text: string): void {
     if (this.agentTurnResolve) {
       this.agentTurnResolve(text);
       this.agentTurnResolve = null;
@@ -452,10 +462,10 @@ export class OpenClawClient {
   // 不等响应）。用于「重置课程 / 进入自由发挥」前停掉上一轮仍在跑的长任务（如自动编译 ~100s）。
   private abortActiveRun(targetWs: webSocket.WebSocket | null): void {
     let runId = this.activeRunId;
-    // 网关要求 chat.abort 必须带 sessionKey；reset() 在清空 sessionKey 之前调用本方法，故此处仍有效。
+    // runId 可能已因 UI 兜底收尾而缺失；网关支持只传 sessionKey，取消该会话下所有活动 run。
     let sessionKey = this.sessionKey;
     this.activeRunId = '';
-    if (!runId || !sessionKey || !targetWs) {
+    if (!sessionKey || !targetWs) {
       return;
     }
     try {
