@@ -34,15 +34,7 @@ DEST="$PROJECTS/$NAME"
 cp -a "$TEMPLATE" "$DEST"
 echo "$DEST" > "$CURRENT"
 
-# 安装基线空白 HAP，让用户立刻看到一个空白应用（与首次进入一致）。
-if [ -s "$BASELINE_HAP" ]; then
-  aa force-stop "$BUNDLE" >/dev/null 2>&1 || true
-  bm uninstall -n "$BUNDLE" >/dev/null 2>&1 || true
-  INSTALL_OUTPUT="$(bm install -p "$BASELINE_HAP" 2>&1)" || { echo "$INSTALL_OUTPUT" >&2; echo "WARN: 基线 HAP 安装失败，可稍后用 assemble_deploy.sh 重新出包" >&2; }
-  echo "$INSTALL_OUTPUT"
-  aa start -a EntryAbility -b "$BUNDLE" >/dev/null 2>&1 || true
-else
-  echo "WARN: 未找到基线 HAP $BASELINE_HAP；新工程已建好，可直接让 AI 开发后用 assemble_deploy.sh 出包" >&2
-fi
-
+# 不在这里安装基线空白 HAP：新建只负责建工程副本 + 置当前工程；
+# 设备上的应用等 AI 按目标开发完、跑 assemble_deploy.sh 时再装真正的 HAP，
+# 避免先闪一个空白「随心」应用。
 echo "NEW_PROJECT_OK $DEST"
