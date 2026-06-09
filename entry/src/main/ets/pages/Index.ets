@@ -1669,9 +1669,14 @@ struct Index {
         let path: string = item['path'] ? item['path'] as string : '';
         let isCurrent: boolean = item['current'] ? item['current'] as boolean : (path === current);
         if (name.length > 0) {
-          // 卡片标题用「开发目标」（取自该副本会话的用户第一句话），取不到再退回工程名。
+          // 卡片标题优先用 HAP 名字（AI 写进 EntryAbility_label 的，由 /blank-list 回传）；
+          // 仍是模板默认「随心」或读不到时，回退到开发目标（会话首句），再回退工程名。
+          let label: string = item['label'] ? (item['label'] as string).trim() : '';
+          if (label === '随心') {
+            label = '';
+          }
           let goal: string = this.firstUserGoal('blank:' + name);
-          list.push(new BlankProjectInfo(name, path, isCurrent, goal));
+          list.push(new BlankProjectInfo(name, path, isCurrent, label, goal));
         }
       }
       this.blankProjects = list;

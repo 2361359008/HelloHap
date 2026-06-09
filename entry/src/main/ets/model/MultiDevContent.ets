@@ -264,9 +264,12 @@ export function buildBlankGoalPrompt(name: string, dir: string, goal: string): s
     + '  「不符合我的要求：请用一句话描述你想开发的 HAP 应用功能，例如"做一个待办清单 HAP"。」\n'
     + '  （系统会据此自动清理这个空工程，请务必原样回复这句话。）\n\n'
     + '━ 如果**是**，请按下面开发这个 HAP（不要再创建工程）：\n'
-    + '  1) 仅在 ' + dir + '/entry/src/main/ets/pages/Index.ets 内按目标开发（ArkUI/ArkTS），不动 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets，也不动 template/ 或 projects/ 下其它工程。\n'
-    + '  2) 开发完执行出包上板：sh /data/local/tmp/assemble_deploy.sh ' + dir + '\n'
-    + '  3) 完成后简要汇报你创建了什么、改了哪些内容。\n\n'
+    + '  1) **给这个 HAP 起个简短中文名字**（2–6 字，概括功能，如「待办清单」「秒表」「记账本」；不要叫"随心"），并把名字写进下面两个资源文件里对应字符串的 value（只改 value，别动 name 和别的字段）——桌面图标名与卡片标题都取这个名字：\n'
+    + '     · ' + dir + '/entry/src/main/resources/base/element/string.json 中 name="EntryAbility_label" 的 value\n'
+    + '     · ' + dir + '/AppScope/resources/base/element/string.json 中 name="app_name" 的 value\n'
+    + '  2) 仅在 ' + dir + '/entry/src/main/ets/pages/Index.ets 内按目标开发（ArkUI/ArkTS），不动 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets、AppScope/app.json5，也不动 template/ 或 projects/ 下其它工程。\n'
+    + '  3) 开发完执行出包上板：sh /data/local/tmp/assemble_deploy.sh ' + dir + '\n'
+    + '  4) 完成后简要汇报你给这个 HAP 起的名字、做了什么、改了哪些内容。\n\n'
     + '用户目标：' + goal;
 }
 
@@ -290,12 +293,14 @@ export class BlankProjectInfo {
   name: string;     // 工程名（projects/ 下的目录名，形如 blank-时间戳）
   path: string;     // 板上绝对路径
   isCurrent: boolean; // 是否为当前激活工程
-  goal: string;     // 该工程的开发目标（用户第一句话），用于卡片标题；取自本地会话记录，可能为空
+  label: string;    // HAP 名字（桌面图标名，AI 起的，取自工程 EntryAbility_label），用于卡片标题；模板默认/未起名时为空
+  goal: string;     // 该工程的开发目标（用户第一句话），label 取不到时的回退标题；取自本地会话记录，可能为空
 
-  constructor(name: string, path: string, isCurrent: boolean, goal: string = '') {
+  constructor(name: string, path: string, isCurrent: boolean, label: string = '', goal: string = '') {
     this.name = name;
     this.path = path;
     this.isCurrent = isCurrent;
+    this.label = label;
     this.goal = goal;
   }
 }
