@@ -22,6 +22,12 @@ const MINESWEEPER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/minesweeper-hapbuild
 // 多元开发：随心（空白）工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 blank-signed.hap）。
 const BLANK_RESTORE_SCRIPT = '/data/local/tmp/blank-hapbuild/restore_blank_project.sh';
 const BLANK_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/blank-hapbuild/install_initial_blank.sh';
+// 随心 A 方案：副本隔离的多工程。模板只读、每个工程一个独立副本、current.txt 指当前工程。
+const BLANK_ROOT = '/data/local/tmp/blank-hapbuild';
+const BLANK_PROJECTS_DIR = BLANK_ROOT + '/projects';
+const BLANK_CURRENT_FILE = BLANK_ROOT + '/current.txt';
+const BLANK_NEW_SCRIPT = BLANK_ROOT + '/blank_new.sh';
+const BLANK_SELECT_SCRIPT = BLANK_ROOT + '/blank_select.sh';
 // 多元开发：视频播放器工程的还原基线 + 安装初始签名 HAP（卸载+安装+启动 videoplayer-signed.hap）。
 const VIDEOPLAYER_RESTORE_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/restore_videoplayer_project.sh';
 const VIDEOPLAYER_INSTALL_INITIAL_SCRIPT = '/data/local/tmp/videoplayer-hapbuild/install_initial_videoplayer.sh';
@@ -37,10 +43,15 @@ const ALLOWED_READ_PREFIXES = [
   '/data/local/tmp/advanced-hapbuild/project/',
   '/data/local/tmp/minesweeper-hapbuild/project/',
   '/data/local/tmp/blank-hapbuild/project/',
+  '/data/local/tmp/blank-hapbuild/projects/',
   '/data/local/tmp/videoplayer-hapbuild/project/',
   '/data/local/tmp/calculator-hapbuild/project/',
   '/data/local/tmp/tetris-hapbuild/project/',
   '/data/local/tmp/.openclaw/workspace/memory/',
+];
+// 随心副本工程的列举根（projects/<名字> 是动态目录，按前缀放行）。
+const ALLOWED_LIST_PREFIXES = [
+  '/data/local/tmp/blank-hapbuild/projects/',
 ];
 // 允许「目录列举」的根目录（用于源码区浏览整个工程的文件树）。
 const ALLOWED_LIST_DIRS = [
@@ -93,7 +104,27 @@ function normalizeDir(dirPath) {
 }
 
 function isAllowedListDir(dirPath) {
-  return ALLOWED_LIST_DIRS.indexOf(normalizeDir(dirPath)) >= 0;
+  const d = normalizeDir(dirPath);
+  if (ALLOWED_LIST_DIRS.indexOf(d) >= 0) return true;
+  return ALLOWED_LIST_PREFIXES.some((prefix) => (d + '/').startsWith(prefix));
+}
+
+// 列出随心的所有工程副本（projects/ 下的子目录）+ 当前激活工程，返回 JSON。
+function listBlankProjects() {
+  let current = '';
+  try { current = readFileSync(BLANK_CURRENT_FILE, 'utf8').trim(); } catch (e) { current = ''; }
+  const projects = [];
+  try {
+    for (const name of readdirSync(BLANK_PROJECTS_DIR).sort()) {
+      if (name.startsWith('.')) continue;
+      const abs = BLANK_PROJECTS_DIR + '/' + name;
+      let st;
+      try { st = statSync(abs); } catch (e) { continue; }
+      if (!st.isDirectory()) continue;
+      projects.push({ name, path: abs, mtime: Math.floor(st.mtimeMs), current: abs === current });
+    }
+  } catch (e) { /* projects 目录尚不存在时返回空列表 */ }
+  return { ok: true, status: 200, output: JSON.stringify({ current, projects }) + '\n' };
 }
 
 // 递归列举 rootDir 下的所有文件，返回相对 rootDir 的路径（正斜杠分隔），已排序。
@@ -177,6 +208,16 @@ async function runFixedScript(scriptPath, timeout = 120000) {
     return { ok: false, output: `missing script: ${scriptPath}\n` };
   }
   const result = await run('/system/bin/sh', [scriptPath], timeout);
+  const output = [result.stdout, result.stderr, result.error].filter(Boolean).join('\n');
+  return { ok: result.code === 0, output };
+}
+
+// 与 runFixedScript 相同，但额外传一个字符串参数（如随心工程名）。参数由调用方校验后传入。
+async function runScriptWithArg(scriptPath, arg, timeout = 120000) {
+  if (!existsSync(scriptPath)) {
+    return { ok: false, output: `missing script: ${scriptPath}\n` };
+  }
+  const result = await run('/system/bin/sh', [scriptPath, arg], timeout);
   const output = [result.stdout, result.stderr, result.error].filter(Boolean).join('\n');
   return { ok: result.code === 0, output };
 }
@@ -292,6 +333,27 @@ const server = createServer(async (req, res) => {
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/install-blank') {
     sendResult(res, await runFixedScript(BLANK_INSTALL_INITIAL_SCRIPT, 60000));
+    return;
+  }
+  // 随心 A 方案：列出已有工程副本（含当前激活），返回 JSON。
+  if (req.method === 'GET' && req.url.startsWith('/blank-list')) {
+    const result = listBlankProjects();
+    res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(result.output);
+    return;
+  }
+  // 随心 A 方案：新建一个工程副本（?name=...），从只读模板复制并设为当前。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-new')) {
+    const name = parseQueryParam(req.url, 'name');
+    if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
+    sendResult(res, await runScriptWithArg(BLANK_NEW_SCRIPT, name, 60000));
+    return;
+  }
+  // 随心 A 方案：切换到一个已有工程副本继续开发（?name=...）。
+  if ((req.method === 'POST' || req.method === 'GET') && req.url.startsWith('/blank-select')) {
+    const name = parseQueryParam(req.url, 'name');
+    if (!name) { sendResult(res, { ok: false, output: 'missing name query parameter\n' }); return; }
+    sendResult(res, await runScriptWithArg(BLANK_SELECT_SCRIPT, name, 60000));
     return;
   }
   if ((req.method === 'POST' || req.method === 'GET') && req.url === '/reset-videoplayer') {

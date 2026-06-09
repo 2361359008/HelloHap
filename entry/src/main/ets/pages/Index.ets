@@ -1,10 +1,12 @@
 import { webview } from '@kit.ArkWeb';
 import { http } from '@kit.NetworkKit';
 import { promptAction } from '@kit.ArkUI';
-import { ChatMessage } from '../model/OpenClawTypes';
+import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+import { ChatMessage, Conversation } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt } from '../model/MultiDevContent';
+import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, BLANK_PROJECT } from '../model/MultiDevContent';
 import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
@@ -12,7 +14,12 @@ import { AdvancedMenuView } from '../view/AdvancedMenuView';
 import { TeachingPathView } from '../view/TeachingPathView';
 import { FreeDevView } from '../view/FreeDevView';
 import { MultiDevMenuView } from '../view/MultiDevMenuView';
+import { BlankProjectsView } from '../view/BlankProjectsView';
 import { WorkspaceView } from '../view/WorkspaceView';
+
+// 多会话持久化存储（preferences）的库名与键名。
+const CONV_STORE_NAME: string = 'openclaw_conversations';
+const CONV_STORE_KEY: string = 'data';
 
 @Entry
 @Component
@@ -88,10 +95,26 @@ struct Index {
   @State chatInput: string = '';
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
+
+  // === 多会话隔离 ===
+  // 每个进入点（教学之路 / 各工程自由开发 / 随心每个副本）各占一条独立会话，拥有自己的
+  // 对话消息与网关会话上下文。chatMessages 始终是「当前活动会话」的镜像；切换上下文时先把
+  // chatMessages 回写到旧会话记录，再载入目标会话的消息。会话持久化到 preferences，关闭应用不丢；
+  // 仅「重置课程」删教学会话、「重置开发」删当前工程会话。
+  private conversations: Conversation[] = [];
+  private activeConvKey: string = '';
+  private convStorePromise: Promise<preferences.Preferences> | null = null;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
-  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'freedev'
+  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'blanklist' | 'freedev'
   @State multiDevProjectId: string = 'schedule'; // 多元开发：当前进入的工程 id
   @State multiDevReadyId: string = ''; // 多元开发：已完成身份初始化的工程 id（空=未就绪）
+  @State multiDevTopLevel: boolean = false; // 多元开发是否由首页顶层入口进入（决定「上一级」回首页还是回高级菜单）
+  // 随心 A 方案：副本隔离的多工程状态。
+  @State blankProjects: BlankProjectInfo[] = []; // 已有空白工程副本列表
+  @State blankListLoading: boolean = false; // 工程列表加载中
+  @State blankListError: string = ''; // 工程列表加载错误（空=无错）
+  @State blankNewName: string = ''; // 新建工程名输入
+  @State blankCurrentRoot: string = ''; // 当前激活的空白工程绝对路径（源码浏览/构建按此工程）
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
@@ -142,6 +165,176 @@ struct Index {
       }
       this.currentExecutionLog += '[gwevent ' + eventName + '] ' + dump + '\n';
     };
+    // 载入持久化的会话（关闭应用后重开仍在）。异步，不阻塞首屏。
+    this.loadConversations();
+  }
+
+  aboutToDisappear(): void {
+    // 退出页面/应用前把当前活动会话回写并持久化，避免最后一段对话丢失。
+    this.persistConversations();
+  }
+
+  // === 多会话隔离：持久化与切换 ===
+  private getConvStore(): Promise<preferences.Preferences> {
+    if (!this.convStorePromise) {
+      let ctx = getContext(this) as common.Context;
+      let opt: preferences.Options = { name: CONV_STORE_NAME };
+      this.convStorePromise = preferences.getPreferences(ctx, opt);
+    }
+    return this.convStorePromise;
+  }
+
+  private findConv(key: string): Conversation | null {
+    for (let i = 0; i < this.conversations.length; i++) {
+      if (this.conversations[i].key === key) {
+        return this.conversations[i];
+      }
+    }
+    return null;
+  }
+
+  // 当前活动会话的初始问候语（按上下文类型给不同文案）。
+  private seedGreeting(kind: string, title: string): ChatMessage[] {
+    let text = '';
+    if (kind === 'teaching') {
+      text = '你好，我是 OpenClaw 教学讲师。这里是「教学之路」的独立会话，进度与对话都会保留。';
+    } else if (kind === 'blank') {
+      text = '你好，这里是随心工程「' + title + '」的独立会话。告诉我你想做什么，我来帮你开发并出 HAP。';
+    } else {
+      text = '你好，这里是「' + title + '」的独立自由开发会话。告诉我你的需求，我来精准修改并出 HAP。';
+    }
+    return [new ChatMessage('assistant', text)];
+  }
+
+  // 把当前 chatMessages 与网关会话状态回写到活动会话记录（持久化前调用）。
+  private syncActiveFromUI(): void {
+    if (!this.activeConvKey) {
+      return;
+    }
+    let conv = this.findConv(this.activeConvKey);
+    if (!conv) {
+      return;
+    }
+    conv.messages = this.chatMessages.slice();
+    conv.sessionKey = this.client.sessionKey;
+    conv.sessionId = this.client.sessionId;
+    conv.updatedAt = Date.now();
+  }
+
+  private async persistConversations(): Promise<void> {
+    this.syncActiveFromUI();
+    try {
+      let store = await this.getConvStore();
+      await store.put(CONV_STORE_KEY, JSON.stringify(this.conversations));
+      await store.flush();
+    } catch (e) {
+      console.error('persistConversations failed: ' + (e as Error).message);
+    }
+  }
+
+  private async loadConversations(): Promise<void> {
+    try {
+      let store = await this.getConvStore();
+      let raw = await store.get(CONV_STORE_KEY, '') as string;
+      if (!raw) {
+        return;
+      }
+      let arr = JSON.parse(raw) as Object[];
+      let list: Conversation[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        let o = arr[i] as Record<string, Object>;
+        let conv = new Conversation(
+          o['key'] ? o['key'] as string : '',
+          o['title'] ? o['title'] as string : '',
+          o['kind'] ? o['kind'] as string : '',
+          o['projectId'] ? o['projectId'] as string : '',
+          o['blankName'] ? o['blankName'] as string : '',
+          o['agentId'] ? o['agentId'] as string : ''
+        );
+        conv.sessionKey = o['sessionKey'] ? o['sessionKey'] as string : '';
+        conv.sessionId = o['sessionId'] ? o['sessionId'] as string : '';
+        conv.ready = o['ready'] ? o['ready'] as boolean : false;
+        conv.updatedAt = o['updatedAt'] ? o['updatedAt'] as number : 0;
+        let msgs: ChatMessage[] = [];
+        let marr: Object[] = o['messages'] ? o['messages'] as Object[] : [];
+        for (let j = 0; j < marr.length; j++) {
+          let m = marr[j] as Record<string, Object>;
+          let cm = new ChatMessage(
+            m['sender'] ? m['sender'] as string : 'assistant',
+            m['text'] ? m['text'] as string : '',
+            m['kind'] ? m['kind'] as string : 'text',
+            m['toolName'] ? m['toolName'] as string : '',
+            m['toolArgs'] ? m['toolArgs'] as string : '',
+            m['isError'] ? m['isError'] as boolean : false
+          );
+          cm.collapsed = m['collapsed'] !== undefined ? (m['collapsed'] as boolean) : true;
+          msgs.push(cm);
+        }
+        conv.messages = msgs;
+        if (conv.key.length > 0) {
+          list.push(conv);
+        }
+      }
+      this.conversations = list;
+    } catch (e) {
+      console.error('loadConversations failed: ' + (e as Error).message);
+    }
+  }
+
+  // 切换到指定上下文的独立会话：回写旧会话→载入/新建目标会话→采用其网关会话续接历史。
+  // 返回目标会话记录（调用方据 conv.ready 决定是否跳过还原/初始化，直接复用已有会话）。
+  private switchConversation(key: string, title: string, kind: string,
+      projectId: string, blankName: string, agentId: string): Conversation {
+    if (this.activeConvKey === key) {
+      let cur = this.findConv(key);
+      if (cur) {
+        this.client.adoptSession(cur.sessionKey, cur.sessionId, cur.agentId);
+        return cur;
+      }
+    }
+    this.syncActiveFromUI();
+    let conv = this.findConv(key);
+    if (!conv) {
+      conv = new Conversation(key, title, kind, projectId, blankName, agentId);
+      conv.messages = this.seedGreeting(kind, title);
+      this.conversations.push(conv);
+    } else {
+      conv.title = title;
+      conv.agentId = agentId;
+    }
+    this.activeConvKey = key;
+    this.chatMessages = conv.messages.length > 0 ? conv.messages.slice() : this.seedGreeting(kind, title);
+    this.client.adoptSession(conv.sessionKey, conv.sessionId, conv.agentId);
+    this.persistConversations();
+    return conv;
+  }
+
+  // 标记活动会话身份已就绪（初始化成功后调用），并持久化。
+  private markActiveConvReady(): void {
+    let conv = this.findConv(this.activeConvKey);
+    if (conv) {
+      conv.ready = true;
+    }
+    this.persistConversations();
+  }
+
+  // 删除当前活动会话（仅由「重置课程/重置开发」触发；关闭应用不调用）。
+  private deleteActiveConversation(): void {
+    if (!this.activeConvKey) {
+      return;
+    }
+    let idx = -1;
+    for (let i = 0; i < this.conversations.length; i++) {
+      if (this.conversations[i].key === this.activeConvKey) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) {
+      this.conversations.splice(idx, 1);
+    }
+    this.activeConvKey = '';
+    this.persistConversations();
   }
 
   // Async helper for delays
@@ -200,6 +393,10 @@ struct Index {
   // 当前源码浏览器对应的工程根目录：自由开发时为所选多元开发工程的 projectRoot，否则为日程基线根。
   currentProjectRoot(): string {
     if (this.advancedScreen === 'freedev') {
+      // 随心（blank）是副本隔离：源码浏览按当前激活的工程副本目录，而非固定 projectRoot。
+      if (this.multiDevProjectId === 'blank' && this.blankCurrentRoot.length > 0) {
+        return this.blankCurrentRoot;
+      }
       return getMultiDevProject(this.multiDevProjectId).projectRoot;
     }
     return ADVANCED_PROJECT_ROOT;
@@ -368,6 +565,8 @@ struct Index {
       let finalEpoch = this.courseEpoch;
       this.enrichTurnFromHistory(finalEpoch);
       setTimeout(() => { this.enrichTurnFromHistory(finalEpoch); }, 1200);
+      // 富集内容补齐后把本轮完整对话回写持久化（关闭应用不丢）。
+      setTimeout(() => { this.persistConversations(); }, 1600);
     } else if (state === 'error' || state === 'aborted') {
       this.stopHistoryPolling();
       this.aiProcessingOverlayVisible = false;
@@ -719,6 +918,8 @@ struct Index {
         this.chatMessages = [...this.chatMessages];
       }, chatAgentId, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
+      // 本轮结束：把消息与网关会话状态回写并持久化（关闭应用不丢）。
+      this.persistConversations();
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
@@ -797,6 +998,7 @@ struct Index {
       }
       this.freeDevReady = true;
       this.multiDevReadyId = project.id;
+      this.markActiveConvReady();
       this.openClawBusy = false;
     } catch (error) {
       if (epoch !== this.courseEpoch) {
@@ -894,6 +1096,7 @@ struct Index {
         return;
       }
       this.teachingReady = true;
+      this.markActiveConvReady();
       this.openClawBusy = false;
     } catch (error) {
       // 因课程重置导致的失败：对话已刷新，不再补残留失败文案。
@@ -1027,6 +1230,9 @@ struct Index {
     // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
     // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
     // 简单关还原脚本轻量、基本不失败，所以一直能开新会话——这正是两者表现差异的根因。
+    // 多会话删除规则：只有「重置课程/重置开发」才删当前会话——删掉当前活动会话（教学之路 /
+    // 当前工程自由开发 / 当前随心副本）的持久化记录；其它会话与关闭应用都不受影响。
+    this.deleteActiveConversation();
     this.clearCourseState();
     this.sourceFileContent = '';
     this.sourceFileError = '';
@@ -1204,9 +1410,13 @@ struct Index {
       });
       return;
     }
+    // 切到「教学之路」的独立会话（持久化、续接历史）。若该会话此前已就绪，直接复用不重复初始化。
+    let conv = this.switchConversation('teaching', '教学之路', 'teaching', '', '', TEACHING_AGENT_ID);
+    this.teachingReady = conv.ready;
     if (this.teachingReady) {
       this.advancedScreen = 'teaching';
       this.workspaceTab = 0;
+      this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
     let epoch = this.courseEpoch;
@@ -1257,14 +1467,25 @@ struct Index {
     }
     this.multiDevProjectId = id;
     let project = getMultiDevProject(id);
-    if (this.freeDevReady && this.multiDevReadyId === id) {
-      this.advancedScreen = 'freedev';
+    // 随心（blank）走 A 方案：先到工程列表子页（列已有副本 + 新建），不在这里还原/安装。
+    if (id === 'blank') {
+      this.advancedScreen = 'blanklist';
       this.workspaceTab = 0;
+      this.blankNewName = '';
+      await this.loadBlankProjects();
       return;
     }
-    // 切到新工程：旧身份作废，重新还原 + 初始化（不同工程绑定不同 agent，不可混用）。
-    this.freeDevReady = false;
-    this.multiDevReadyId = '';
+    // 切到该工程的独立自由开发会话（持久化、续接历史）。
+    let conv = this.switchConversation('freedev:' + id, project.title + '·自由开发', 'freedev', id, '', project.agentId);
+    this.freeDevReady = conv.ready;
+    this.multiDevReadyId = conv.ready ? id : '';
+    if (this.freeDevReady && this.multiDevReadyId === id) {
+      // 该会话此前已就绪（同次运行内切回，或重开应用后复用）：直接进工作区续接，不重复还原/初始化。
+      this.advancedScreen = 'freedev';
+      this.workspaceTab = 0;
+      this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
+      return;
+    }
     let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
     this.projectInitStep = 0;
@@ -1283,6 +1504,102 @@ struct Index {
       return;
     }
     await this.initMultiDevIdentity(project);
+  }
+
+  // 随心 A 方案：拉取已有空白工程副本列表（GET /blank-list 返回 JSON）。
+  async loadBlankProjects(): Promise<void> {
+    this.blankListLoading = true;
+    this.blankListError = '';
+    try {
+      let text = await this.client.requestText(BLANK_LIST_URL, http.RequestMethod.GET);
+      let data = JSON.parse(text) as Record<string, Object>;
+      let current: string = data['current'] ? data['current'] as string : '';
+      let arr: Object[] = data['projects'] ? data['projects'] as Object[] : [];
+      let list: BlankProjectInfo[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        let item = arr[i] as Record<string, Object>;
+        let name: string = item['name'] ? item['name'] as string : '';
+        let path: string = item['path'] ? item['path'] as string : '';
+        let isCurrent: boolean = item['current'] ? item['current'] as boolean : (path === current);
+        if (name.length > 0) {
+          list.push(new BlankProjectInfo(name, path, isCurrent));
+        }
+      }
+      this.blankProjects = list;
+    } catch (error) {
+      this.blankListError = error instanceof Error ? error.message : String(error);
+      this.blankProjects = [];
+    }
+    this.blankListLoading = false;
+  }
+
+  // 随心 A 方案：新建一个空白工程副本（从只读模板复制），成功后进入其开发工作区。
+  async createBlankProject(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    let name: string = this.blankNewName.trim();
+    if (name.length === 0) {
+      // 留空则用时间戳命名，保证每次新建都是独立副本。
+      name = 'blank-' + Date.now().toString();
+    }
+    await this.enterBlankProject(name, true);
+  }
+
+  // 随心 A 方案：进入一个空白工程副本继续开发。isNew=true 走新建端点，否则走切换端点。
+  // 与其它工程不同：不还原、不清空（副本隔离），只切换当前工程 + 装该工程 HAP + 初始化身份。
+  async enterBlankProject(name: string, isNew: boolean): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    this.multiDevProjectId = 'blank';
+    // 每个随心副本各占一条独立会话（key=blank:<name>），持久化、续接历史、互不串扰。
+    let conv = this.switchConversation('blank:' + name, '随心·' + name, 'blank', 'blank', name, BLANK_PROJECT.agentId);
+    // 该副本会话此前已就绪且非新建：仍切板端当前工程指针，但跳过身份初始化，直接续接对话。
+    let resume = conv.ready && !isNew;
+    this.freeDevReady = conv.ready;
+    this.multiDevReadyId = conv.ready ? 'blank' : '';
+    let epoch = this.courseEpoch;
+    this.advancedScreen = 'freedev';
+    this.projectInitStep = 1;
+    this.projectInitOverlayVisible = true;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant',
+      (isNew ? '正在从模板新建空白工程 ' : '正在切换到空白工程 ') + name + ' 并装到板上...'));
+    this.chatMessages = [...this.chatMessages];
+    try {
+      let url: string = isNew ? buildBlankNewUrl(name) : buildBlankSelectUrl(name);
+      let out = await this.client.requestText(url, http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank ' + (isNew ? 'new' : 'select') + ' ' + name + '] ' + out + '\n';
+      // 脚本回显当前工程绝对路径（NEW_PROJECT_OK/SELECT_OK <path>），据此定位源码浏览根。
+      let marker: string = isNew ? 'NEW_PROJECT_OK ' : 'SELECT_OK ';
+      let idx: number = out.indexOf(marker);
+      if (idx >= 0) {
+        let rest: string = out.substring(idx + marker.length);
+        let nl: number = rest.indexOf('\n');
+        this.blankCurrentRoot = (nl >= 0 ? rest.substring(0, nl) : rest).trim();
+      } else {
+        this.blankCurrentRoot = '/data/local/tmp/blank-hapbuild/projects/' + name;
+      }
+      this.chatMessages.push(new ChatMessage('assistant', '空白工程「' + name + '」已就绪。'));
+      this.chatMessages = [...this.chatMessages];
+    } catch (error) {
+      let msg: string = error instanceof Error ? error.message : String(error);
+      this.chatMessages.push(new ChatMessage('assistant', '工程准备失败：' + msg));
+      this.chatMessages = [...this.chatMessages];
+    }
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
+    if (resume) {
+      // 复用已就绪会话：不重复初始化身份，直接回到工作区续接对话。
+      this.studentQuestionEnabled = true;
+      this.projectInitOverlayVisible = false;
+      return;
+    }
+    await this.initMultiDevIdentity(BLANK_PROJECT);
   }
 
   // Pre-fill states on selecting a task
@@ -1619,6 +1936,7 @@ struct Index {
       if (this.currentMode === '') {
         // === Selection & Entry Home Page ===
         HomeEntryView({
+          multiDevBusy: this.openClawBusy,
           onEnterTutorial: () => {
             this.currentMode = 'tutorial';
             this.tutorialStep = 0;
@@ -1630,8 +1948,18 @@ struct Index {
             this.selectedTaskIndex = 0;
             this.workspaceTab = 0;
             this.advancedScreen = 'menu';
+            this.multiDevTopLevel = false;
             // 返回主页不等于重置：不在此清空 freeDevReady/teachingReady，
             // 再次进入高级课程时保留已初始化的身份，避免重复初始化（重置请走「重置开发」按钮）。
+          },
+          onEnterMultiDev: () => {
+            // 多元开发作为首页顶层入口：直接进多元开发工程列表（复用高级版分屏渲染）。
+            this.currentMode = 'advanced';
+            this.tutorialStep = 0;
+            this.selectedTaskIndex = 0;
+            this.workspaceTab = 0;
+            this.advancedScreen = 'multidev';
+            this.multiDevTopLevel = true;
           }
         })
 
@@ -1649,7 +1977,7 @@ struct Index {
               .onClick(() => { this.currentMode = ''; })
 
             if (this.currentMode === 'advanced' && this.advancedScreen !== 'menu') {
-              // 上一级：freedev → 多元开发列表；多元开发/教学 → 高级菜单。
+              // 上一级：freedev → 工程列表/高级菜单；多元开发列表 → 首页(顶层进入)或高级菜单；教学 → 高级菜单。
               Button('上一级')
                 .height(36)
                 .fontSize(14)
@@ -1660,7 +1988,20 @@ struct Index {
                 .enabled(!this.openClawBusy && !this.courseResetting)
                 .onClick(() => {
                   if (this.advancedScreen === 'freedev') {
+                    if (this.multiDevProjectId === 'blank') {
+                      this.advancedScreen = 'blanklist';
+                    } else if (this.multiDevTopLevel) {
+                      this.advancedScreen = 'multidev';
+                    } else {
+                      // 高级菜单「自由开发」进来的日程工程：返回高级菜单。
+                      this.advancedScreen = 'menu';
+                    }
+                  } else if (this.advancedScreen === 'blanklist') {
                     this.advancedScreen = 'multidev';
+                  } else if (this.advancedScreen === 'multidev' && this.multiDevTopLevel) {
+                    // 多元开发是首页顶层入口进来的：返回首页。
+                    this.multiDevTopLevel = false;
+                    this.currentMode = '';
                   } else {
                     this.advancedScreen = 'menu';
                   }
@@ -1762,11 +2103,22 @@ struct Index {
                       multiDevBusy: this.openClawBusy,
                       onSelectProject: (id: string) => { this.selectMultiDevProject(id); }
                     })
+                  } else if (this.advancedScreen === 'blanklist') {
+                    BlankProjectsView({
+                      blankProjects: this.blankProjects,
+                      blankListLoading: this.blankListLoading,
+                      blankListError: this.blankListError,
+                      blankNewName: $blankNewName,
+                      blankBusy: this.openClawBusy,
+                      onRefresh: () => { this.loadBlankProjects(); },
+                      onContinue: (name: string) => { this.enterBlankProject(name, false); },
+                      onCreate: () => { this.createBlankProject(); }
+                    })
                   } else {
                     AdvancedMenuView({
                       onEnterTeaching: () => { this.enterTeaching(); },
                       freeDevBusy: this.openClawBusy,
-                      onEnterMultiDev: () => { this.enterMultiDev(); }
+                      onEnterFreeDev: () => { this.multiDevTopLevel = false; this.selectMultiDevProject('schedule'); }
                     })
                   }
 

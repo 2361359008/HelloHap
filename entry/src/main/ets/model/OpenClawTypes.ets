@@ -26,6 +26,33 @@ export class ChatMessage {
   }
 }
 
+// 一条独立会话：每个进入点（教学之路 / 各工程自由开发 / 随心每个副本）各占一条，
+// 拥有自己的对话消息、绑定的 OpenClaw agent 与网关会话（sessionKey/sessionId，用于跨切换/重启续接历史）。
+// ready=该会话身份是否已初始化（持久化后再次进入可直接复用，不重复还原/初始化）。
+// 删除时机：教学会话仅「重置课程」删除；工程自由开发会话仅「重置开发」删除；关闭应用不删除。
+export class Conversation {
+  key: string = '';        // 上下文唯一键：'teaching' | 'freedev:<projectId>' | 'blank:<name>'
+  title: string = '';      // 会话显示名
+  kind: string = '';       // 'teaching' | 'freedev' | 'blank'
+  projectId: string = '';  // freedev/blank 对应工程 id（blank 固定 'blank'）
+  blankName: string = '';  // 随心副本名（仅 kind==='blank'）
+  agentId: string = '';    // 绑定的 OpenClaw agent id
+  sessionKey: string = ''; // 网关会话 key（续接历史用）
+  sessionId: string = '';
+  ready: boolean = false;  // 身份是否已初始化
+  messages: ChatMessage[] = [];
+  updatedAt: number = 0;
+  constructor(key: string = '', title: string = '', kind: string = '',
+      projectId: string = '', blankName: string = '', agentId: string = '') {
+    this.key = key;
+    this.title = title;
+    this.kind = kind;
+    this.projectId = projectId;
+    this.blankName = blankName;
+    this.agentId = agentId;
+  }
+}
+
 export class PendingRequest {
   id: string = '';
   resolve: (value: string) => void = () => {};
