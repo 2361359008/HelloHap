@@ -1059,7 +1059,7 @@ struct Index {
     }
   }
 
-  // 发送当前工程的第 index 个预设提示词（仅日程工程有预设；扫雷/随心为空）。
+  // 发送当前工程的第 index 个预设提示词（日程 2 条；扫雷/视频/计算器/俄罗斯方块各 1 条；随心暂无）。
   async sendMultiDevPreset(index: number): Promise<void> {
     let project = this.currentMultiDevProject();
     if (index < 0 || index >= project.presets.length) {
