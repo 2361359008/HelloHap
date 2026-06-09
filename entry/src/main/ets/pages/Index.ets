@@ -2177,14 +2177,33 @@ struct Index {
                       .onChange((v) => { this.chatInput = v; })
                       .onSubmit(() => { this.sendChatMessage(); })
 
-                    Button('发送')
+                    if (this.openClawBusy) {
+                      // 处理中：转圈 + 「运行中」，醒目背景、禁用点击。
+                      Button() {
+                        Row() {
+                          LoadingProgress()
+                            .width(16).height(16).color('#1e1e2e')
+                          Text('运行中')
+                            .fontSize(12).fontColor('#1e1e2e').fontWeight(FontWeight.Bold)
+                            .margin({ left: 6 })
+                        }
+                        .alignItems(VerticalAlign.Center)
+                      }
                       .height(34)
-                      .fontSize(12)
-                      .backgroundColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#89b4fa' : '#45475a')
-                      .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#1e1e2e' : '#a6adc8')
+                      .backgroundColor('#f9e2af')
                       .borderRadius(4)
-                      .enabled((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy)
-                      .onClick(() => { this.sendChatMessage(); })
+                      .padding({ left: 14, right: 14 })
+                      .enabled(false)
+                    } else {
+                      Button('发送')
+                        .height(34)
+                        .fontSize(12)
+                        .backgroundColor((this.studentQuestionEnabled || this.tutorialStep === 4) ? '#89b4fa' : '#45475a')
+                        .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) ? '#1e1e2e' : '#a6adc8')
+                        .borderRadius(4)
+                        .enabled(this.studentQuestionEnabled || this.tutorialStep === 4)
+                        .onClick(() => { this.sendChatMessage(); })
+                    }
                   }
                   .width('100%')
                 }
@@ -2222,6 +2241,7 @@ struct Index {
               advancedFilesLoading: this.advancedFilesLoading,
               advancedFilesError: this.advancedFilesError,
               selectedSourceFile: this.selectedSourceFile,
+              openClawBusy: this.openClawBusy,
               onSelectSourceTab: () => { this.onSourceTabSelected(); },
               onRefreshSource: () => { this.fetchBoardSourceFile(); },
               onSelectAdvancedFile: (path: string) => { this.selectAdvancedSourceFile(path); },
