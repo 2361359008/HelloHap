@@ -38,7 +38,7 @@ export struct MultiDevMenuView {
         .opacity(this.multiDevBusy ? 0.5 : 1)
         .onClick(() => { this.onSelectProject(project.id); })
     }
-    .width('100%')
+    .width('48%')
     .padding(14)
     .backgroundColor('#313244')
     .borderRadius(8)
@@ -63,9 +63,12 @@ export struct MultiDevMenuView {
           .margin({ bottom: 12 })
           .alignSelf(ItemAlign.Start)
 
-        ForEach(MULTIDEV_PROJECTS, (project: MultiDevProject) => {
-          this.ProjectCard(project)
-        }, (project: MultiDevProject) => project.id)
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+          ForEach(MULTIDEV_PROJECTS, (project: MultiDevProject) => {
+            this.ProjectCard(project)
+          }, (project: MultiDevProject) => project.id)
+        }
+        .width('100%')
       }
       .width('100%')
       .padding({ left: 16, right: 16 })
