@@ -58,6 +58,9 @@ struct Index {
   private courseResetNoticeSequence: number = 0;
   private readonly boardIndexEtsUrl: string =
     'http://127.0.0.1:7681/read-file?path=%2Fdata%2Flocal%2Ftmp%2Foh61-hapbuild%2Fproject%2Fentry%2Fsrc%2Fmain%2Fets%2Fpages%2FIndex.ets';
+  // 基础版（简单关：oh61-hapbuild 教学工程）还原接口：从 backups/course-initial 基线刷回工程源码，
+  // 进入基础版时调用，确保练习关改过 HAP 后下次进来仍是干净初始状态（修改不持久）。
+  private readonly courseResetUrl: string = 'http://127.0.0.1:7681/reset-course';
   // 高级版（自由发挥/教学共用的 schedulehap-lite 工程）还原接口：刷回初始备份。
   private readonly advancedResetUrl: string = 'http://127.0.0.1:7681/reset-advanced';
   // 高级版「装回最原始基线 HAP」接口（板端直跑 install_initial_advanced.sh，不经 OpenClaw）。
@@ -1311,6 +1314,50 @@ struct Index {
     return false;
   }
 
+  // 把基础版（简单关）教学工程 /data/local/tmp/oh61-hapbuild/project 刷回初始基线
+  // （/reset-course → restore_course_project.sh）。进入基础版时调用：练习关改过 HAP 后，
+  // 下次进入仍是干净初始状态（修改不持久）。与高级版一致，最多重试 3 次（间隔 800ms）。
+  async restoreCourseProject(): Promise<boolean> {
+    const maxAttempts = 3;
+    let lastInfo = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        let out = await this.client.requestText(this.courseResetUrl, http.RequestMethod.GET);
+        this.currentExecutionLog += '[reset-course] (try ' + attempt.toString() + ') ' + out + '\n';
+        if (out.indexOf('ok:') >= 0) {
+          return true;
+        }
+        lastInfo = out;
+      } catch (e) {
+        lastInfo = e instanceof Error ? e.message : this.getErrorMessage(e as Object);
+        this.currentExecutionLog += '[reset-course] (try ' + attempt.toString() + ') failed: ' + lastInfo + '\n';
+      }
+      if (attempt < maxAttempts) {
+        await this.delay(800);
+      }
+    }
+    this.currentExecutionLog += '[reset-course] 教学工程还原多次未成功（已重试 '
+      + maxAttempts.toString() + ' 次）：' + lastInfo + '\n';
+    return false;
+  }
+
+  // 进入基础版（智能交互式学习）：先把教学工程刷回初始基线，再进关卡选择页。
+  // 这样练习关改过 HAP（hello world 全流程）后，重新进入基础版仍是干净初始状态。
+  async enterBasicTutorial(): Promise<void> {
+    this.currentMode = 'tutorial';
+    this.tutorialStep = 0;
+    this.selectedTaskIndex = 0;
+    let epoch = this.courseEpoch;
+    this.projectInitStep = 0;
+    this.projectInitOverlayVisible = true;
+    await this.restoreCourseProject();
+    // 还原是 HTTP 往返：期间若被重置（代际变化）或用户已离开基础版，则放弃收尾。
+    if (epoch !== this.courseEpoch || this.currentMode !== 'tutorial') {
+      return;
+    }
+    this.projectInitOverlayVisible = false;
+  }
+
   // 把板上已安装的日程 HAP 还原成最原始基线包：板端直跑 install_initial_advanced.sh
   // （/install-initial → 卸载+安装+启动基线签名包，不编译不签名），不再经 OpenClaw 发提示词，秒级完成。
   // 与 restoreAdvancedProject 同样最多重试 3 次（间隔 800ms），失败给明确反馈但不阻断后续身份确认。
@@ -1965,9 +2012,8 @@ struct Index {
         HomeEntryView({
           multiDevBusy: this.openClawBusy,
           onEnterTutorial: () => {
-            this.currentMode = 'tutorial';
-            this.tutorialStep = 0;
-            this.selectedTaskIndex = 0;
+            // 进入基础版前先把教学工程还原到初始基线（练习关改过 HAP 不持久）。
+            this.enterBasicTutorial();
           },
           onEnterAdvanced: () => {
             this.currentMode = 'advanced';
@@ -2856,9 +2902,9 @@ struct Index {
         // 第二步：还原板上 HAP（自由发挥经板端直跑）并经 OpenClaw 初始化身份。
         this.focusLoadingOverlay('正在初始化项目', '② 正在初始化身份，请稍候', 2)
       } else {
-        // 第一步：HTTP 直连板端还原工程源码模板（多元开发按所选工程命名）。
+        // 第一步：HTTP 直连板端还原工程源码模板（多元开发按所选工程命名；基础版为教学工程）。
         this.focusLoadingOverlay('正在初始化项目',
-          '① 正在还原' + (this.advancedScreen === 'freedev' ? getMultiDevProject(this.multiDevProjectId).title : '日程') + '工程模板，请稍候', 1)
+          '① 正在还原' + (this.currentMode === 'tutorial' ? '教学' : (this.advancedScreen === 'freedev' ? getMultiDevProject(this.multiDevProjectId).title : '日程')) + '工程模板，请稍候', 1)
       }
     }
 
