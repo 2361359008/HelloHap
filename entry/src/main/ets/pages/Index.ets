@@ -474,6 +474,15 @@ struct Index {
       // 标记本轮已被富展示接管：后续 delta 不再写纯文本气泡。
       this.turnRichActive = true;
 
+      // 富集内容（思考/工具/结果）已开始渲染：立即结束全屏「正在回复」转圈遮罩，
+      // 改由对话区内联富集展示 + 顶部/发送键内联忙态承载加载，避免遮罩盖住内容。
+      if (this.aiProcessingOverlayVisible) {
+        this.aiProcessingOverlayVisible = false;
+      }
+      if (this.projectInitOverlayVisible) {
+        this.projectInitOverlayVisible = false;
+      }
+
       // 兜底完成判定：最后一段已是助手文本回复，且连续多次轮询本轮内容无变化，
       // 说明网关大概率已结束本轮但未下发 chat 'final' 事件——主动收尾，避免一直转圈。
       let lastSeg = segments[segments.length - 1];
