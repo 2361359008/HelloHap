@@ -99,9 +99,12 @@ struct Index {
   // 向 OpenClaw 对话发送消息时的全屏「AI 助手正在处理」加载遮罩，与项目初始化遮罩同款。
   // 同样在 OpenClaw 一开始返回内容（首个流式/最终/错误事件）时立即关闭。
   @State aiProcessingOverlayVisible: boolean = false;
-  // 处理遮罩的两个阶段：'sending'=对话发送/网关接收中；'replying'=已被 OpenClaw 接收、正在生成回复。
-  // chat.send 成功响应（onSent 回调）时从 sending 切到 replying，让加载更动态。
+  // 处理遮罩的两个阶段：'sending'=「正在发送给 AI 助手…」(发送动画)；'replying'=原转圈「OpenClaw 正在回复」。
+  // chat.send 被网关接收（onSent 回调）后从 sending 切到 replying；replying 段在结构化内容
+  // （thinking/toolCall/toolResult/非空 text 任一）首次出现时关闭，不再「收到任意事件就关」（太早会闪）。
   @State aiProcessingPhase: string = 'sending';
+  // 遮罩打开时刻：用于保证 sending 段最短显示 0.5s，避免 onSent 太快导致一闪而过。
+  private overlayShownAt: number = 0;
   // 诊断用：记录本轮已采集过的 chat 事件形态，避免重复刷屏；每轮结束后清空。
   private seenChatEventShapes: Set<string> = new Set();
   // 页面层重置代际。每次清课程状态自增；enterFreeDev/enterTeaching/init*/send* 在
@@ -269,12 +272,11 @@ struct Index {
   }
 
   handleChatStreamEvent(payload: Record<string, Object>) {
-    // 一旦 OpenClaw 开始返回（首个流式/最终/错误事件），立即结束加载遮罩，不必等整轮跑完。
+    // 项目初始化遮罩：一旦 OpenClaw 开始返回（首个事件）即结束。
+    // 注意：对话处理遮罩 aiProcessingOverlayVisible 不在这里「收到任意事件就关」（太早会闪），
+    // 而是改由「结构化内容首次出现」关闭——见 delta 分支（非空 text）与 applyHistoryToTurn（思考/工具/结果）。
     if (this.projectInitOverlayVisible) {
       this.projectInitOverlayVisible = false;
-    }
-    if (this.aiProcessingOverlayVisible) {
-      this.aiProcessingOverlayVisible = false;
     }
 
     // 诊断采集：把本轮里每一种「形态」（state + 顶层字段集合）首次出现的原始事件
@@ -303,6 +305,10 @@ struct Index {
       if (!this.historyPollActive) {
         this.startHistoryPolling(this.courseEpoch);
       }
+      // 非空 assistant text 也是「已开始输出过程」的强信号之一：关掉 replying 转圈遮罩。
+      if (this.aiProcessingOverlayVisible && text.trim() !== '') {
+        this.aiProcessingOverlayVisible = false;
+      }
       // 已被富展示接管：纯文本由轮询/最终补全，跳过以免与分段气泡相互覆盖闪烁。
       if (this.turnRichActive) {
         return;
@@ -323,6 +329,7 @@ struct Index {
     } else if (state === 'final' || state === 'complete' || state === 'completed'
       || state === 'done' || state === 'end' || state === 'finished') {
       this.stopHistoryPolling();
+      this.aiProcessingOverlayVisible = false;
       this.lastTurnSignature = '';
       this.stableTurnPolls = 0;
       // 兜底：最终回复为空或 NO_REPLY 时，不要把对话气泡清空（看起来像被截断）。
@@ -358,6 +365,7 @@ struct Index {
       setTimeout(() => { this.enrichTurnFromHistory(finalEpoch); }, 1200);
     } else if (state === 'error' || state === 'aborted') {
       this.stopHistoryPolling();
+      this.aiProcessingOverlayVisible = false;
       this.lastTurnSignature = '';
       this.stableTurnPolls = 0;
       let errorMsg = 'OpenClaw 调用失败/中断';
@@ -381,6 +389,27 @@ struct Index {
       return true;
     }
     return t.startsWith('OpenClaw 正在') || t.startsWith('正在');
+  }
+
+  // onSent（chat.send 被网关接收）后：把遮罩从 sending「正在发送给 AI 助手…」切到
+  // replying 原转圈「OpenClaw 正在回复」。保证 sending 段最短显示 0.5s，避免一闪而过。
+  // 切换时用 overlayShownAt 比对，防止下一轮已重开遮罩时被这条延迟回调误改。
+  private enterReplyingPhase(): void {
+    if (!this.aiProcessingOverlayVisible) {
+      return;
+    }
+    let shownAt = this.overlayShownAt;
+    let elapsed = Date.now() - shownAt;
+    let go = (): void => {
+      if (this.aiProcessingOverlayVisible && this.overlayShownAt === shownAt) {
+        this.aiProcessingPhase = 'replying';
+      }
+    };
+    if (elapsed >= 500) {
+      go();
+    } else {
+      setTimeout(go, 500 - elapsed);
+    }
   }
 
   // 开始/停止本轮的 chat.history 轮询（递归 setTimeout，避免请求重叠）。
@@ -679,6 +708,7 @@ struct Index {
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
+    this.overlayShownAt = Date.now();
     let epoch = this.courseEpoch;
     // 本轮一开始就起一个干净的历史轮询：不依赖网关是否下发 chat delta/final 事件，
     // 富集内容一进 chat.history 就渲染并立刻关掉全屏遮罩，稳定后兜底收尾，杜绝一直转圈。
@@ -709,7 +739,7 @@ struct Index {
       await this.client.startTurn(sendMsg, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, chatAgentId, () => { this.aiProcessingOverlayVisible = false; });
+      }, chatAgentId, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -818,12 +848,13 @@ struct Index {
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
+    this.overlayShownAt = Date.now();
     this.startHistoryPolling(this.courseEpoch);
     try {
       await this.client.startTurn(promptText, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在思考中...'));
         this.chatMessages = [...this.chatMessages];
-      }, FREEDEV_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
+      }, FREEDEV_AGENT_ID, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -921,12 +952,13 @@ struct Index {
     this.openClawBusy = true;
     this.aiProcessingPhase = 'sending';
     this.aiProcessingOverlayVisible = true;
+    this.overlayShownAt = Date.now();
     this.startHistoryPolling(this.courseEpoch);
     try {
       await this.client.startTurn(buildLogHapFlowPrompt(nextStep), () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在讲解...'));
         this.chatMessages = [...this.chatMessages];
-      }, TEACHING_AGENT_ID, () => { this.aiProcessingOverlayVisible = false; });
+      }, TEACHING_AGENT_ID, () => { this.enterReplyingPhase(); });
       this.openClawBusy = false;
     } catch (error) {
       this.aiProcessingOverlayVisible = false;
@@ -2366,7 +2398,7 @@ struct Index {
       if (this.aiProcessingPhase === 'replying') {
         this.focusLoadingOverlay('OpenClaw 正在回复', 'AI 助手正在生成回复内容，请稍候', 2)
       } else {
-        this.focusLoadingOverlay('对话已发送', 'OpenClaw 正在接收信息，请稍候', 1)
+        this.focusLoadingOverlay('正在发送给 AI 助手…', '正在把你的消息发送给 AI 助手', 1)
       }
     }
 
