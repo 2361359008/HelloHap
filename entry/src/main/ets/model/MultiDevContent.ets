@@ -118,10 +118,28 @@ export const BLANK_PROJECT: MultiDevProject = new MultiDevProject(
   []
 );
 
+// 4) 视频播放器 HAP 自由开发（最小可播放基线工程 examples/video-player-hap）。
+export const VIDEOPLAYER_PROJECT: MultiDevProject = new MultiDevProject(
+  'videoplayer',
+  '视频播放器 HAP 自由开发',
+  '在一个能播放本地/网络视频的播放器 HAP 上自由发挥：播放控制、进度、列表、配色……和 AI 一起迭代。',
+  '#fab387',
+  'com.openclaw.videoplayer',
+  'videoplayer',
+  '/data/local/tmp/videoplayer-hapbuild/project',
+  BRIDGE + '/reset-videoplayer',
+  BRIDGE + '/install-videoplayer',
+  '/data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh',
+  '欢迎来到视频播放器 HAP 自由开发界面，播放器工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个播放器改成你想要的样子。',
+  '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
+  []
+);
+
 // 多元开发工程列表（菜单按此顺序展示）。
 export const MULTIDEV_PROJECTS: MultiDevProject[] = [
   SCHEDULE_PROJECT,
   MINESWEEPER_PROJECT,
+  VIDEOPLAYER_PROJECT,
   BLANK_PROJECT
 ];
 

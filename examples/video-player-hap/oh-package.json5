@@ -1,0 +1,7 @@
+{
+  "modelVersion": "5.0.0",
+  "description": "Minimal OpenHarmony API 23 video player project",
+  "dependencies": {},
+  "devDependencies": {
+  }
+}
