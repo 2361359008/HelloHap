@@ -11,7 +11,8 @@
 
 import { ADVANCED_BUILD_SCRIPT, buildRestoreTypeMenuPrompt, buildRestoreReminderPrompt } from './FreeDevContent';
 
-// 一个预设提示词按钮（仅日程工程使用；扫雷/随心为纯自由对话，无预设）。
+// 一个预设提示词按钮。日程有 2 条；扫雷/视频/计算器/俄罗斯方块各 1 条「一句话提示词」
+// （label 为展示用一句话，prompt 为发给 OpenClaw 的具体指令）；随心(blank)暂为空。
 export class MultiDevPrompt {
   label: string;
   prompt: string;
@@ -98,7 +99,11 @@ export const MINESWEEPER_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh',
   '欢迎来到扫雷 HAP 自由开发界面，扫雷工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个扫雷游戏改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
-  []
+  [
+    new MultiDevPrompt('一句话改造：顶部显示「剩余雷数」',
+      '请只修改扫雷工程的 entry/src/main/ets/pages/Index.ets，在顶部信息栏（笑脸/计时附近）新增一处「剩余雷数」显示，数值＝总雷数 − 已插旗数（复用现有 flagCount 状态），不改扫雷核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh 编译装板，并把改动回贴给我。',
+      '#f38ba8')
+  ]
 );
 
 // 3) 随心自由开发（完全空白的 HAP 工程基线，从零开发）。
@@ -132,7 +137,11 @@ export const VIDEOPLAYER_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh',
   '欢迎来到视频播放器 HAP 自由开发界面，播放器工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个播放器改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
-  []
+  [
+    new MultiDevPrompt('一句话改造：新增「快进 15 秒」按钮',
+      '请只修改视频播放器工程的 entry/src/main/ets/pages/Index.ets，在播放控制区仿照现有按钮新增一个「快进 15 秒」按钮，点击后让播放进度在 currentTime 基础上前进 15 秒（复用现有播放控件写法），不动其它文件；改完执行 sh /data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh 编译装板，并把改动回贴给我。',
+      '#fab387')
+  ]
 );
 
 // 5) 计算器 HAP 自由开发（自适应计算器基线工程 examples/calculator-hap）。
@@ -149,7 +158,11 @@ export const CALCULATOR_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/calculator-hapbuild/build_calculator.sh',
   '欢迎来到计算器 HAP 自由开发界面，计算器工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个计算器改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
-  []
+  [
+    new MultiDevPrompt('一句话改造：新增百分号(%)按键',
+      '请只修改计算器工程的 entry/src/main/ets/pages/Index.ets，仿照现有按键新增一个百分号「%」按键，按下时把当前显示数字 display 除以 100 并刷新显示（复用现有按键布局与运算写法），不动其它文件；改完执行 sh /data/local/tmp/calculator-hapbuild/build_calculator.sh 编译装板，并把改动回贴给我。',
+      '#94e2d5')
+  ]
 );
 
 // 6) 俄罗斯方块 HAP 自由开发（俄罗斯方块基线工程 examples/tetris-hap）。
@@ -166,7 +179,11 @@ export const TETRIS_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/tetris-hapbuild/build_tetris.sh',
   '欢迎来到俄罗斯方块 HAP 自由开发界面，俄罗斯方块工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个游戏改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
-  []
+  [
+    new MultiDevPrompt('一句话改造：右侧信息区显示「最高分」',
+      '请只修改俄罗斯方块工程的 entry/src/main/ets/pages/Index.ets，在右侧信息区（分数/等级附近）新增一处「最高分」显示，并在分数 score 刷新时同步更新最高分（新增一个 @State 保存即可），不改游戏核心逻辑、不动其它文件；改完执行 sh /data/local/tmp/tetris-hapbuild/build_tetris.sh 编译装板，并把改动回贴给我。',
+      '#cba6f7')
+  ]
 );
 
 // 多元开发工程列表（菜单按此顺序展示）。
