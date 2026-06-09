@@ -39,8 +39,10 @@ BUNDLE_NAME="$(grep -oE '"bundleName"[[:space:]]*:[[:space:]]*"[^"]+"' "$PROJECT
 SLUG="${BUNDLE_NAME##*.}"               # 例: com.openclaw.calculator -> calculator
 ABILITY_NAME="${ABILITY_NAME:-EntryAbility}"
 
-# 输出 HAP：默认放在工程目录的上级，名字 <slug>-signed.hap。
-OUT_DIR="${OUT_DIR:-$(dirname "$PROJECT_DIR")}"
+# 输出 HAP：默认放在工程自己的 .build/ 子目录，名字 <slug>-signed.hap。
+# 放进工程目录内可保证每个工程（尤其随心的多个副本工程）各有独立产物、互不覆盖。
+OUT_DIR="${OUT_DIR:-$PROJECT_DIR/.build}"
+mkdir -p "$OUT_DIR"
 SIGNED_HAP="${2:-$OUT_DIR/$SLUG-signed.hap}"
 UNSIGNED_HAP="$OUT_DIR/$SLUG-unsigned.hap"
 

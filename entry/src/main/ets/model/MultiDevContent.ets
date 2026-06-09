@@ -68,7 +68,7 @@ const BRIDGE: string = 'http://127.0.0.1:7681';
 export const SCHEDULE_PROJECT: MultiDevProject = new MultiDevProject(
   'schedule',
   '日程 HAP 自由开发',
-  '在日程 HAP 工程上和 AI 协同还原/扩展功能（类型下拉、提醒开关等）。',
+  '在日程 HAP 工程上和 AI 协同自由开发/扩展功能（类型下拉、提醒开关等）。',
   '#89b4fa',
   'com.openclaw.schedulehap.lite',
   'restore',
@@ -76,7 +76,7 @@ export const SCHEDULE_PROJECT: MultiDevProject = new MultiDevProject(
   BRIDGE + '/reset-advanced',
   BRIDGE + '/install-initial',
   ADVANCED_BUILD_SCRIPT,
-  '欢迎来到日程 HAP 自由开发界面，工程已还原到初始模板。可直接对话，或用下方提示词驱动 OpenClaw 协同开发。',
+  '欢迎来到日程 HAP 自由开发界面，工程已加载初始模板。可直接对话，或用下方提示词驱动 OpenClaw 协同开发。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，99% 的改动只动这一个文件。绝对别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signing/、EntryAbility.ets。',
   [
     new MultiDevPrompt('① 自由开发：类型下拉菜单', buildRestoreTypeMenuPrompt(), '#89b4fa'),
@@ -96,7 +96,7 @@ export const MINESWEEPER_PROJECT: MultiDevProject = new MultiDevProject(
   BRIDGE + '/reset-minesweeper',
   BRIDGE + '/install-minesweeper',
   '/data/local/tmp/minesweeper-hapbuild/build_minesweeper.sh',
-  '欢迎来到扫雷 HAP 自由开发界面，扫雷工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个扫雷游戏改成你想要的样子。',
+  '欢迎来到扫雷 HAP 自由开发界面，扫雷工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个扫雷游戏改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
   []
 );
@@ -112,9 +112,9 @@ export const BLANK_PROJECT: MultiDevProject = new MultiDevProject(
   '/data/local/tmp/blank-hapbuild/project',
   BRIDGE + '/reset-blank',
   BRIDGE + '/install-blank',
-  '/data/local/tmp/blank-hapbuild/build_blank.sh',
-  '欢迎来到随心自由开发界面，这是一个完全空白的 HAP 工程。没有任何预设功能，请尽情发挥想象，把你想要的应用和 AI 助手一起从零开发出来。',
-  '工程入口与首页在 entry/src/main/ets/pages/Index.ets，从这里开始搭你的界面与逻辑。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
+  '/data/local/tmp/assemble_deploy.sh',
+  '欢迎来到随心自由开发界面。当前是你选中的空白工程副本（每个工程相互独立、永久保留）。没有任何预设功能，请尽情发挥想象，把你想要的应用和 AI 助手一起从零开发出来。',
+  '只在「当前激活的这个工程副本目录」里改 entry/src/main/ets/pages/Index.ets，绝不动只读模板 template/、绝不删别的工程副本。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。改完用万能脚本 assemble_deploy.sh <当前工程目录> 出包上板。',
   []
 );
 
@@ -130,7 +130,7 @@ export const VIDEOPLAYER_PROJECT: MultiDevProject = new MultiDevProject(
   BRIDGE + '/reset-videoplayer',
   BRIDGE + '/install-videoplayer',
   '/data/local/tmp/videoplayer-hapbuild/build_videoplayer.sh',
-  '欢迎来到视频播放器 HAP 自由开发界面，播放器工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个播放器改成你想要的样子。',
+  '欢迎来到视频播放器 HAP 自由开发界面，播放器工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个播放器改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
   []
 );
@@ -147,7 +147,7 @@ export const CALCULATOR_PROJECT: MultiDevProject = new MultiDevProject(
   BRIDGE + '/reset-calculator',
   BRIDGE + '/install-calculator',
   '/data/local/tmp/calculator-hapbuild/build_calculator.sh',
-  '欢迎来到计算器 HAP 自由开发界面，计算器工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个计算器改成你想要的样子。',
+  '欢迎来到计算器 HAP 自由开发界面，计算器工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个计算器改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
   []
 );
@@ -164,7 +164,7 @@ export const TETRIS_PROJECT: MultiDevProject = new MultiDevProject(
   BRIDGE + '/reset-tetris',
   BRIDGE + '/install-tetris',
   '/data/local/tmp/tetris-hapbuild/build_tetris.sh',
-  '欢迎来到俄罗斯方块 HAP 自由开发界面，俄罗斯方块工程已还原到初始模板并装到板上。尽情发挥，和 AI 助手一起把这个游戏改成你想要的样子。',
+  '欢迎来到俄罗斯方块 HAP 自由开发界面，俄罗斯方块工程已加载初始模板并装到板上。尽情发挥，和 AI 助手一起把这个游戏改成你想要的样子。',
   '全部 UI 与逻辑都在 entry/src/main/ets/pages/Index.ets，改动尽量只动这一个文件。别碰 build-profile.json5、hvigor*、oh-package.json5、package.json、signature/、entryability/EntryAbility.ets。',
   []
 );
@@ -192,4 +192,30 @@ export function getMultiDevProject(id: string): MultiDevProject {
 // 进入工程时发给其 agent 的轻量身份确认问候（与日程一致：只让 agent 一句话确认身份）。
 export function buildMultiDevIdentityPrompt(): string {
   return `你好，请用一句话确认你当前的身份。`;
+}
+
+// ===== 随心（blank）A 方案：副本隔离的多工程 =====
+// 模板只读；每个工程一个独立副本目录 projects/<名字>/；current.txt 指当前激活工程。
+// 进入随心时先列已有工程卡片 + 「＋ 新建空白工程」：点已有继续、点新建才复制模板。
+
+// shell-bridge 随心多工程端点。
+export const BLANK_LIST_URL: string = BRIDGE + '/blank-list';
+export function buildBlankNewUrl(name: string): string {
+  return BRIDGE + '/blank-new?name=' + encodeURIComponent(name);
+}
+export function buildBlankSelectUrl(name: string): string {
+  return BRIDGE + '/blank-select?name=' + encodeURIComponent(name);
+}
+
+// 一个随心工程副本的信息（由 /blank-list 返回的 JSON 解析而来）。
+export class BlankProjectInfo {
+  name: string;     // 工程名（projects/ 下的目录名）
+  path: string;     // 板上绝对路径
+  isCurrent: boolean; // 是否为当前激活工程
+
+  constructor(name: string, path: string, isCurrent: boolean) {
+    this.name = name;
+    this.path = path;
+    this.isCurrent = isCurrent;
+  }
 }

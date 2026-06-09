@@ -4,7 +4,7 @@ import { promptAction } from '@kit.ArkUI';
 import { ChatMessage } from '../model/OpenClawTypes';
 import { buildPracticeFullFlowPrompt, getStepLabel, getSourceTabText } from '../model/CourseContent';
 import { ADVANCED_PROJECT_ROOT } from '../model/FreeDevContent';
-import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt } from '../model/MultiDevContent';
+import { MultiDevProject, getMultiDevProject, buildMultiDevIdentityPrompt, BlankProjectInfo, BLANK_LIST_URL, buildBlankNewUrl, buildBlankSelectUrl, BLANK_PROJECT } from '../model/MultiDevContent';
 import { buildTeachingIdentityPrompt, buildLogHapFlowPrompt, getLogHapFlowChatTitle, TEACHING_AGENT_ID } from '../model/TeachingContent';
 import { OpenClawClient } from '../service/OpenClawClient';
 import { HomeEntryView } from '../view/HomeEntryView';
@@ -12,6 +12,7 @@ import { AdvancedMenuView } from '../view/AdvancedMenuView';
 import { TeachingPathView } from '../view/TeachingPathView';
 import { FreeDevView } from '../view/FreeDevView';
 import { MultiDevMenuView } from '../view/MultiDevMenuView';
+import { BlankProjectsView } from '../view/BlankProjectsView';
 import { WorkspaceView } from '../view/WorkspaceView';
 
 @Entry
@@ -89,9 +90,15 @@ struct Index {
   @State openClawBusy: boolean = false;
   @State studentQuestionEnabled: boolean = false;
   @State freeDevReady: boolean = false; // 自由开发：openclaw 身份是否已初始化
-  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'freedev'
+  @State advancedScreen: string = 'menu'; // 高级版左侧子页：'menu' | 'teaching' | 'multidev' | 'blanklist' | 'freedev'
   @State multiDevProjectId: string = 'schedule'; // 多元开发：当前进入的工程 id
   @State multiDevReadyId: string = ''; // 多元开发：已完成身份初始化的工程 id（空=未就绪）
+  // 随心 A 方案：副本隔离的多工程状态。
+  @State blankProjects: BlankProjectInfo[] = []; // 已有空白工程副本列表
+  @State blankListLoading: boolean = false; // 工程列表加载中
+  @State blankListError: string = ''; // 工程列表加载错误（空=无错）
+  @State blankNewName: string = ''; // 新建工程名输入
+  @State blankCurrentRoot: string = ''; // 当前激活的空白工程绝对路径（源码浏览/构建按此工程）
   @State teachingReady: boolean = false; // 教学之路：openclaw 讲师身份是否已初始化
   @State teachingFlowStep: number = 0; // 教学之路：当前展示的日志 HAP 开发流程步骤，从 0 开始
   // 进入自由开发/教学时的全屏「项目初始化」加载遮罩：背景压暗、中间聚焦卡片转圈。
@@ -200,6 +207,10 @@ struct Index {
   // 当前源码浏览器对应的工程根目录：自由开发时为所选多元开发工程的 projectRoot，否则为日程基线根。
   currentProjectRoot(): string {
     if (this.advancedScreen === 'freedev') {
+      // 随心（blank）是副本隔离：源码浏览按当前激活的工程副本目录，而非固定 projectRoot。
+      if (this.multiDevProjectId === 'blank' && this.blankCurrentRoot.length > 0) {
+        return this.blankCurrentRoot;
+      }
       return getMultiDevProject(this.multiDevProjectId).projectRoot;
     }
     return ADVANCED_PROJECT_ROOT;
@@ -1257,6 +1268,14 @@ struct Index {
     }
     this.multiDevProjectId = id;
     let project = getMultiDevProject(id);
+    // 随心（blank）走 A 方案：先到工程列表子页（列已有副本 + 新建），不在这里还原/安装。
+    if (id === 'blank') {
+      this.advancedScreen = 'blanklist';
+      this.workspaceTab = 0;
+      this.blankNewName = '';
+      await this.loadBlankProjects();
+      return;
+    }
     if (this.freeDevReady && this.multiDevReadyId === id) {
       this.advancedScreen = 'freedev';
       this.workspaceTab = 0;
@@ -1283,6 +1302,92 @@ struct Index {
       return;
     }
     await this.initMultiDevIdentity(project);
+  }
+
+  // 随心 A 方案：拉取已有空白工程副本列表（GET /blank-list 返回 JSON）。
+  async loadBlankProjects(): Promise<void> {
+    this.blankListLoading = true;
+    this.blankListError = '';
+    try {
+      let text = await this.client.requestText(BLANK_LIST_URL, http.RequestMethod.GET);
+      let data = JSON.parse(text) as Record<string, Object>;
+      let current: string = data['current'] ? data['current'] as string : '';
+      let arr: Object[] = data['projects'] ? data['projects'] as Object[] : [];
+      let list: BlankProjectInfo[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        let item = arr[i] as Record<string, Object>;
+        let name: string = item['name'] ? item['name'] as string : '';
+        let path: string = item['path'] ? item['path'] as string : '';
+        let isCurrent: boolean = item['current'] ? item['current'] as boolean : (path === current);
+        if (name.length > 0) {
+          list.push(new BlankProjectInfo(name, path, isCurrent));
+        }
+      }
+      this.blankProjects = list;
+    } catch (error) {
+      this.blankListError = error instanceof Error ? error.message : String(error);
+      this.blankProjects = [];
+    }
+    this.blankListLoading = false;
+  }
+
+  // 随心 A 方案：新建一个空白工程副本（从只读模板复制），成功后进入其开发工作区。
+  async createBlankProject(): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    let name: string = this.blankNewName.trim();
+    if (name.length === 0) {
+      // 留空则用时间戳命名，保证每次新建都是独立副本。
+      name = 'blank-' + Date.now().toString();
+    }
+    await this.enterBlankProject(name, true);
+  }
+
+  // 随心 A 方案：进入一个空白工程副本继续开发。isNew=true 走新建端点，否则走切换端点。
+  // 与其它工程不同：不还原、不清空（副本隔离），只切换当前工程 + 装该工程 HAP + 初始化身份。
+  async enterBlankProject(name: string, isNew: boolean): Promise<void> {
+    if (this.openClawBusy) {
+      promptAction.showToast({ message: 'OpenClaw 正在处理上一条消息，请等待回复完成。', duration: 1800 });
+      return;
+    }
+    this.multiDevProjectId = 'blank';
+    this.freeDevReady = false;
+    this.multiDevReadyId = '';
+    let epoch = this.courseEpoch;
+    this.advancedScreen = 'freedev';
+    this.projectInitStep = 1;
+    this.projectInitOverlayVisible = true;
+    this.workspaceTab = 0;
+    this.chatMessages.push(new ChatMessage('assistant',
+      (isNew ? '正在从模板新建空白工程 ' : '正在切换到空白工程 ') + name + ' 并装到板上...'));
+    this.chatMessages = [...this.chatMessages];
+    try {
+      let url: string = isNew ? buildBlankNewUrl(name) : buildBlankSelectUrl(name);
+      let out = await this.client.requestText(url, http.RequestMethod.GET);
+      this.currentExecutionLog += '[blank ' + (isNew ? 'new' : 'select') + ' ' + name + '] ' + out + '\n';
+      // 脚本回显当前工程绝对路径（NEW_PROJECT_OK/SELECT_OK <path>），据此定位源码浏览根。
+      let marker: string = isNew ? 'NEW_PROJECT_OK ' : 'SELECT_OK ';
+      let idx: number = out.indexOf(marker);
+      if (idx >= 0) {
+        let rest: string = out.substring(idx + marker.length);
+        let nl: number = rest.indexOf('\n');
+        this.blankCurrentRoot = (nl >= 0 ? rest.substring(0, nl) : rest).trim();
+      } else {
+        this.blankCurrentRoot = '/data/local/tmp/blank-hapbuild/projects/' + name;
+      }
+      this.chatMessages.push(new ChatMessage('assistant', '空白工程「' + name + '」已就绪。'));
+      this.chatMessages = [...this.chatMessages];
+    } catch (error) {
+      let msg: string = error instanceof Error ? error.message : String(error);
+      this.chatMessages.push(new ChatMessage('assistant', '工程准备失败：' + msg));
+      this.chatMessages = [...this.chatMessages];
+    }
+    if (epoch !== this.courseEpoch) {
+      return;
+    }
+    await this.initMultiDevIdentity(BLANK_PROJECT);
   }
 
   // Pre-fill states on selecting a task
@@ -1660,6 +1765,9 @@ struct Index {
                 .enabled(!this.openClawBusy && !this.courseResetting)
                 .onClick(() => {
                   if (this.advancedScreen === 'freedev') {
+                    // 随心工程返回到其工程列表；其余工程返回多元开发列表。
+                    this.advancedScreen = this.multiDevProjectId === 'blank' ? 'blanklist' : 'multidev';
+                  } else if (this.advancedScreen === 'blanklist') {
                     this.advancedScreen = 'multidev';
                   } else {
                     this.advancedScreen = 'menu';
@@ -1761,6 +1869,17 @@ struct Index {
                     MultiDevMenuView({
                       multiDevBusy: this.openClawBusy,
                       onSelectProject: (id: string) => { this.selectMultiDevProject(id); }
+                    })
+                  } else if (this.advancedScreen === 'blanklist') {
+                    BlankProjectsView({
+                      blankProjects: this.blankProjects,
+                      blankListLoading: this.blankListLoading,
+                      blankListError: this.blankListError,
+                      blankNewName: $blankNewName,
+                      blankBusy: this.openClawBusy,
+                      onRefresh: () => { this.loadBlankProjects(); },
+                      onContinue: (name: string) => { this.enterBlankProject(name, false); },
+                      onCreate: () => { this.createBlankProject(); }
                     })
                   } else {
                     AdvancedMenuView({

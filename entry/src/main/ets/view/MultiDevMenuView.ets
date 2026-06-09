@@ -56,7 +56,7 @@ export struct MultiDevMenuView {
           .margin({ bottom: 6, top: 6 })
           .alignSelf(ItemAlign.Start)
 
-        Text('选择一个 HAP 工程，进入后会还原工程基线并装到板上，然后和 AI 助手一起自由开发。')
+        Text('选择一个 HAP 工程，进入后加载该工程的初始模板并装到板上，然后和 AI 助手一起自由开发。')
           .fontSize(12)
           .fontColor('#a6adc8')
           .lineHeight(16)
