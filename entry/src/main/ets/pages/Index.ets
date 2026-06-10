@@ -3060,13 +3060,14 @@ struct Index {
                 Column() {
                   // Input Bar at the Bottom
                   Row() {
-                    // 多行输入框：字号接近上方提示词、文字黄色、可输入并展示 5~6 行（高度占用上方空间）。
+                    // 多行输入框：字号接近上方提示词、文字黄色。不设固定高度，靠 constraintSize 约束——
+                    // 初始约 2 行高，随输入文字增多自动变高，最多约 6 行后内部滚动。
                     TextArea({
                       placeholder: this.studentQuestionEnabled ? (this.openClawBusy ? 'OpenClaw 正在处理，请等待回复完成...' : '在此提问，例如：什么是 HAP 签名？') : '请先点击“呼叫 OpenClaw 协同开发”并等待任务完成...',
                       text: this.chatInput
                     })
                       .layoutWeight(1)
-                      .height(148)
+                      .constraintSize({ minHeight: 56, maxHeight: 148 })
                       .fontSize(14)
                       .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#f9e2af' : '#6c7086')
                       .placeholderColor('#585b70')
