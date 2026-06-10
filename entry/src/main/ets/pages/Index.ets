@@ -365,7 +365,8 @@ struct Index {
     this.persistConversations();
   }
 
-  // 退出工作区（返回主页 / 上一级）时的收尾：即使 OpenClaw 仍在处理也允许退出，不再卡死。
+  // 退出工作区（返回主页 / 上一级）时的收尾。对话回复中（openClawBusy）时两个返回键已置灰禁用（同发送键）；
+  // 但项目初始化/随心创建/历史轮询等其他在途状态仍可退出，这里统一收尾。
   // 先把当前会话已产生的内容回写持久化，再自增代际让在途轮次的迟到事件被忽略
   // （见 handleChatStreamEvent 守卫），并停掉本页轮询与忙态遮罩；网络轮次在后台自然结束，
   // 历史已写入会话记录，下次进入该会话仍可续接。
@@ -2303,8 +2304,10 @@ struct Index {
               .height(36)
               .fontSize(14)
               .backgroundColor('#45475a')
-              .fontColor('#cdd6f4')
+              .fontColor(this.openClawBusy ? '#a6adc8' : '#cdd6f4')
               .borderRadius(8)
+              .opacity(this.openClawBusy ? 0.5 : 1)
+              .enabled(!this.openClawBusy)
               .onClick(() => { this.leaveWorkspaceCleanup(); this.currentMode = ''; })
 
             if (this.currentMode === 'advanced' && this.advancedScreen !== 'menu') {
@@ -2313,12 +2316,13 @@ struct Index {
                 .height(36)
                 .fontSize(14)
                 .backgroundColor('#45475a')
-                .fontColor('#cdd6f4')
+                .fontColor(this.openClawBusy ? '#a6adc8' : '#cdd6f4')
                 .borderRadius(8)
                 .margin({ left: 8 })
-                .enabled(!this.courseResetting)
+                .opacity(this.openClawBusy ? 0.5 : 1)
+                .enabled(!this.openClawBusy && !this.courseResetting)
                 .onClick(() => {
-                  // 即使 OpenClaw 仍在处理也允许退出：先收尾（持久化+解除忙态），再返回。
+                  // 对话回复中本键已置灰禁用；点击时先收尾（持久化+解除其他在途状态），再返回。
                   this.leaveWorkspaceCleanup();
                   if (this.advancedScreen === 'freedev') {
                     if (this.multiDevProjectId === 'blank') {
