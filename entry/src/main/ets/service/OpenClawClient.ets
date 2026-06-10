@@ -526,4 +526,19 @@ export class OpenClawClient {
       pendingReject(new Error('Course reset'));
     }
   }
+
+  // 软件退出（页面/应用销毁）时调用：只给网关发 chat.abort 中止当前会话正在板上占队列的活动 run，
+  // 但保留 sessionKey/sessionId/agent 与已持久化的会话上下文——不走 reset() 那条清会话/清上下文的路。
+  // 与 reset() 的区别：不自增 resetEpoch、不清会话、不丢弃连接实例，仅释放板端在途 run。
+  cancelActiveRunKeepSession(): void {
+    // 在当前活动连接上发 chat.abort（runId 缺失时按已有协议只带 sessionKey，取消该会话下活动 run）。
+    this.abortActiveRun(this.ws);
+    // 解开仍在等待本轮的调用方（页面退出已自增 courseEpoch，迟到事件会被现有 epoch 守卫丢弃）。
+    let pendingReject = this.agentTurnReject;
+    this.agentTurnResolve = null;
+    this.agentTurnReject = null;
+    if (pendingReject) {
+      pendingReject(new Error('App exited'));
+    }
+  }
 }
