@@ -3060,23 +3060,24 @@ struct Index {
                 Column() {
                   // Input Bar at the Bottom
                   Row() {
-                    TextInput({
+                    // 多行输入框：字号接近上方提示词、文字黄色、可输入并展示 5~6 行（高度占用上方空间）。
+                    TextArea({
                       placeholder: this.studentQuestionEnabled ? (this.openClawBusy ? 'OpenClaw 正在处理，请等待回复完成...' : '在此提问，例如：什么是 HAP 签名？') : '请先点击“呼叫 OpenClaw 协同开发”并等待任务完成...',
                       text: this.chatInput
                     })
                       .layoutWeight(1)
-                      .height(34)
-                      .fontSize(11)
-                      .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#cdd6f4' : '#6c7086')
+                      .height(148)
+                      .fontSize(14)
+                      .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#f9e2af' : '#6c7086')
                       .placeholderColor('#585b70')
                       .backgroundColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#11111b' : '#181825')
-                      .borderRadius(4)
+                      .borderRadius(6)
                       .borderWidth(1)
                       .borderColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#45475a' : '#313244')
+                      .padding({ left: 10, right: 10, top: 8, bottom: 8 })
                       .margin({ right: 6 })
                       .enabled((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy)
                       .onChange((v) => { this.chatInput = v; })
-                      .onSubmit(() => { this.sendChatMessage(); })
 
                     if (this.openClawBusy) {
                       // 处理中：转圈 + 「运行中」，醒目背景、禁用点击。
@@ -3107,6 +3108,7 @@ struct Index {
                     }
                   }
                   .width('100%')
+                  .alignItems(VerticalAlign.Bottom)
                 }
                 .width('100%')
                 .padding(12)
