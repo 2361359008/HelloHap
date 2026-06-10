@@ -1068,7 +1068,11 @@ struct Index {
         this.client.startTurn(buildMultiDevIdentityPrompt(), () => {
           this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化身份...'));
           this.chatMessages = [...this.chatMessages];
-        }, project.agentId).then(() => 'ok'),
+        }, project.agentId, () => {
+          // 身份初始化请求被网关接收即关全屏遮罩，不再干等整轮 AI 回复——直接进工作区，
+          // 身份初始化继续后台跑（顶部忙态 + 发送键禁用承载，就绪后才放开提问）。
+          this.projectInitOverlayVisible = false;
+        }).then(() => 'ok'),
         this.timeoutSentinel(60000)
       ]);
       // 被重置过就不再标记就绪（旧身份初始化作废）。
@@ -1179,7 +1183,11 @@ struct Index {
         this.client.startTurn(buildTeachingIdentityPrompt(), () => {
           this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在初始化讲师身份...'));
           this.chatMessages = [...this.chatMessages];
-        }, TEACHING_AGENT_ID).then(() => 'ok'),
+        }, TEACHING_AGENT_ID, () => {
+          // 讲师身份初始化请求被网关接收即关全屏遮罩，不再干等整轮 AI 回复——直接进教学之路，
+          // 身份初始化继续后台跑（顶部忙态 + 发送键禁用承载，就绪后才放开提问）。
+          this.projectInitOverlayVisible = false;
+        }).then(() => 'ok'),
         this.timeoutSentinel(60000)
       ]);
       // 被重置过就不再标记就绪（旧身份初始化作废）。
