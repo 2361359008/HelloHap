@@ -1593,24 +1593,19 @@ struct Index {
       this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
-    let epoch = this.courseEpoch;
     this.advancedScreen = 'teaching';
-    this.projectInitStep = 0;
+    this.projectInitStep = 1;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    // 并行提速：板端日程工程还原+基线启动（HTTP→7681，仅 aa start）与 讲师身份初始化对话（OpenClaw）
-    // 同时进行。二者互不依赖——身份提示词只是「确认身份」，不读板端 HAP 状态——故无需串行等待。
-    let boardInit: Promise<void> = (async (): Promise<void> => {
-      await this.restoreAdvancedProject();
-      if (epoch !== this.courseEpoch) {
-        return;
-      }
-      this.projectInitStep = 1;
-      await this.installTeachingBaseline();
-    })();
-    await Promise.all([boardInit, this.initTeachingIdentity()]);
+    // 全并行提速：板端日程工程还原(HTTP→7681)、板端基线启动(HTTP→7681，仅 aa start)、讲师身份初始化对话(OpenClaw)
+    // 三者互不依赖——还原改源码目录、启动跑的是完整主日程 HAP、身份只确认 agent 身份，互不读写对方产物——故同时进行。
+    await Promise.all([
+      this.restoreAdvancedProject(),
+      this.installTeachingBaseline(),
+      this.initTeachingIdentity()
+    ]);
   }
 
   // 进入「多元开发」工程列表（不立即还原/初始化，等用户在卡片里选具体工程）。
@@ -1659,24 +1654,19 @@ struct Index {
       this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
-    let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
-    this.projectInitStep = 0;
+    this.projectInitStep = 1;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原' + project.title + '工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    // 并行提速：板端 HAP 还原+安装（HTTP→7681）与 身份初始化对话（OpenClaw）同时进行。
-    // 二者互不依赖——身份提示词只是「确认身份」，不读板端 HAP 状态——故无需串行等待。
-    let boardInit: Promise<void> = (async (): Promise<void> => {
-      await this.restoreMultiDevProject(project);
-      if (epoch !== this.courseEpoch) {
-        return;
-      }
-      this.projectInitStep = 1;
-      await this.installInitialMultiDevHap(project);
-    })();
-    await Promise.all([boardInit, this.initMultiDevIdentity(project)]);
+    // 全并行提速：板端还原源码(HTTP→7681)、板端重装+启动签名 HAP(HTTP→7681)、身份初始化对话(OpenClaw)
+    // 三者互不依赖——还原改源码目录、安装重装的是预编译签名 HAP、身份只确认 agent 身份，互不读写对方产物——故同时进行。
+    await Promise.all([
+      this.restoreMultiDevProject(project),
+      this.installInitialMultiDevHap(project),
+      this.initMultiDevIdentity(project)
+    ]);
   }
 
   // 随心 A 方案：拉取已有空白工程副本列表（GET /blank-list 返回 JSON）。
