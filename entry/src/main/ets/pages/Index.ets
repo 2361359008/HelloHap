@@ -1315,11 +1315,25 @@ struct Index {
     if (this.courseResetting) {
       return;
     }
+    // 与发送/进入工程等动作一致：对话回复中（openClawBusy）禁止重置——按钮已置灰，这里再做一层
+    // 逻辑兜底，避免任何情况下（按钮禁用态未拦住点击等）在 AI 处理途中弹出重置确认框打断本轮。
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
     this.resetConfirmVisible = true;
   }
 
   async resetCourse(): Promise<void> {
     if (this.courseResetting) {
+      return;
+    }
+    // 兜底：对话回复中不执行重置（正常路径下确认框在 openClawBusy 时根本不会弹出）。
+    if (this.openClawBusy) {
+      this.resetConfirmVisible = false;
       return;
     }
     this.courseResetting = true;
