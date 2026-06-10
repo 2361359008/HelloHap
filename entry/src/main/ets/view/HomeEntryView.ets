@@ -13,13 +13,13 @@ export struct HomeEntryView {
   build() {
     Column() {
       // Title Section
-      Text('OpenClaw 智能开发向导')
+      Text('开源鸿蒙hap的ai助手导学和自由开发')
         .fontSize(28)
         .fontWeight(FontWeight.Bold)
         .fontColor('#cdd6f4')
         .margin({ top: 80, bottom: 10 })
 
-      Text('专为 OpenHarmony ArkUI 打造的 AI 协同学习平台')
+      Text('为OpenHarmony Hap打造的AI助手协同学习平台')
         .fontSize(14)
         .fontColor('#a6adc8')
         .margin({ bottom: 60 })

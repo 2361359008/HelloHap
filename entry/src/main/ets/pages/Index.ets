@@ -2372,7 +2372,9 @@ struct Index {
                 })
             }
 
-            Text(this.currentMode === 'advanced' ? '鸿蒙 ArkUI 高级开发课程' : '鸿蒙 ArkUI 智能交互式学习课程')
+            Text(this.currentMode === 'advanced'
+              ? (this.advancedScreen === 'multidev' ? '开源鸿蒙hap自由开发' : '开源鸿蒙hap高级开发课程')
+              : '开源鸿蒙hap简单开发课程')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .fontColor('#cdd6f4')
