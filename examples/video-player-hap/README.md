@@ -8,7 +8,7 @@
 - API：OpenHarmony 23（Stage 模型）
 - 入口：`entry/src/main/ets/pages/Index.ets`
 - 权限：`ohos.permission.INTERNET`（播放网络视频需要；内置 rawfile 播放可不依赖网络）
-- 内置片源：`entry/src/main/resources/rawfile/welcome.mp4`（仓库 `videos/openharmony-hap-welcome-updated.mp4`），首页默认 `src = $rawfile('welcome.mp4')`，一进去就播放
+- 内置片源：`entry/src/main/resources/rawfile/ai-mini-pc-fast-intro-typewriter.mp4`（仓库 `videos/ai-mini-pc-fast-intro-typewriter.mp4`），首页默认 `src = $rawfile('ai-mini-pc-fast-intro-typewriter.mp4')`，一进去就自动全屏播放一次
 - 也可在界面输入框粘贴 http/https 网络地址临时切换，「内置视频」按钮一键切回内置片源
 
 ## 构建（在板端 linux-env 容器内编译 + 签名 + 安装 + 启动）

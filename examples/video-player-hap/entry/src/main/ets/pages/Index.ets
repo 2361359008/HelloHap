@@ -6,9 +6,9 @@
 @Entry
 @Component
 struct Index {
-  // 默认播放工程内置的欢迎视频（entry/src/main/resources/rawfile/welcome.mp4）。
+  // 默认播放工程内置视频（entry/src/main/resources/rawfile/ai-mini-pc-fast-intro-typewriter.mp4）。
   // src 同时支持 Resource（内置 rawfile）与 string（http/https 网络地址）。
-  @State videoSrc: Resource | string = $rawfile('welcome.mp4');
+  @State videoSrc: Resource | string = $rawfile('ai-mini-pc-fast-intro-typewriter.mp4');
   @State urlInput: string = '';
   @State isPlaying: boolean = false;
   @State statusText: string = '启动中，准备自动全屏播放...';
@@ -139,7 +139,7 @@ struct Index {
           .fontColor('#11151C')
           .margin({ left: 16 })
           .onClick(() => {
-            this.videoSrc = $rawfile('welcome.mp4');
+            this.videoSrc = $rawfile('ai-mini-pc-fast-intro-typewriter.mp4');
             this.currentTime = 0;
             this.durationTime = 0;
             this.statusText = '已加载内置视频';

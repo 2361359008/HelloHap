@@ -16,7 +16,7 @@
 
 `Index.ets` 里 `struct Index` 的关键结构：
 
-- 播放源：`@State videoSrc: Resource | string`，默认 `$rawfile('welcome.mp4')`（工程内置欢迎视频，在 `entry/src/main/resources/rawfile/welcome.mp4`）。`src` 同时支持 `Resource`（内置 rawfile）和 `string`（http/https 网络地址）。
+- 播放源：`@State videoSrc: Resource | string`，默认 `$rawfile('ai-mini-pc-fast-intro-typewriter.mp4')`（工程内置视频，在 `entry/src/main/resources/rawfile/ai-mini-pc-fast-intro-typewriter.mp4`）。`src` 同时支持 `Resource`（内置 rawfile）和 `string`（http/https 网络地址）。
 - 状态：`urlInput`、`isPlaying`、`statusText`、`currentTime`、`durationTime`；`controller: VideoController`。
 - UI：ArkUI `Video` 组件（`onStart/onPause/onFinish/onPrepared/onUpdate/onError` 回调）+ 进度时间文本 + 「播放/暂停」「停止」「内置视频」按钮 + URL 输入框「加载」。
 - 工具：`formatTime(seconds)` 把秒格式化成 mm:ss。
