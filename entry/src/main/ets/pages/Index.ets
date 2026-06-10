@@ -181,7 +181,12 @@ struct Index {
   }
 
   aboutToDisappear(): void {
-    // 退出页面/应用前把当前活动会话回写并持久化，避免最后一段对话丢失。
+    // 软件退出（页面/应用销毁）前：先中止正在板子上占队列的当前 run，再回写持久化。
+    // 自增 courseEpoch 让任何迟到的旧轮次事件被现有 epoch 守卫丢弃，不污染会话。
+    this.courseEpoch++;
+    // 只发 chat.abort 释放板端在途 run，保留 sessionKey/sessionId 与会话上下文——不走 reset() 清会话的路。
+    this.client.cancelActiveRunKeepSession();
+    // 把当前活动会话回写并持久化，避免最后一段对话丢失。
     this.persistConversations();
   }
 
