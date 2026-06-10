@@ -1593,27 +1593,19 @@ struct Index {
       this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
-    let epoch = this.courseEpoch;
     this.advancedScreen = 'teaching';
-    this.projectInitStep = 0;
+    this.projectInitStep = 1;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    await this.restoreAdvancedProject();
-    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    if (!this.teachingReady) {
-      this.projectInitStep = 1;
-      // 教学之路初始状态：仅启动完整主日程 HAP（板端直跑 aa start，不经 OpenClaw），再做轻量身份确认。
-      await this.installTeachingBaseline();
-      if (epoch !== this.courseEpoch) {
-        return;
-      }
-      await this.initTeachingIdentity();
-    }
+    // 全并行提速：板端日程工程还原(HTTP→7681)、板端基线启动(HTTP→7681，仅 aa start)、讲师身份初始化对话(OpenClaw)
+    // 三者互不依赖——还原改源码目录、启动跑的是完整主日程 HAP、身份只确认 agent 身份，互不读写对方产物——故同时进行。
+    await Promise.all([
+      this.restoreAdvancedProject(),
+      this.installTeachingBaseline(),
+      this.initTeachingIdentity()
+    ]);
   }
 
   // 进入「多元开发」工程列表（不立即还原/初始化，等用户在卡片里选具体工程）。
@@ -1662,24 +1654,19 @@ struct Index {
       this.studentQuestionEnabled = true; // 复用已就绪会话：恢复可提问状态
       return;
     }
-    let epoch = this.courseEpoch;
     this.advancedScreen = 'freedev';
-    this.projectInitStep = 0;
+    this.projectInitStep = 1;
     this.projectInitOverlayVisible = true;
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原' + project.title + '工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    await this.restoreMultiDevProject(project);
-    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    this.projectInitStep = 1;
-    await this.installInitialMultiDevHap(project);
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    await this.initMultiDevIdentity(project);
+    // 全并行提速：板端还原源码(HTTP→7681)、板端重装+启动签名 HAP(HTTP→7681)、身份初始化对话(OpenClaw)
+    // 三者互不依赖——还原改源码目录、安装重装的是预编译签名 HAP、身份只确认 agent 身份，互不读写对方产物——故同时进行。
+    await Promise.all([
+      this.restoreMultiDevProject(project),
+      this.installInitialMultiDevHap(project),
+      this.initMultiDevIdentity(project)
+    ]);
   }
 
   // 随心 A 方案：拉取已有空白工程副本列表（GET /blank-list 返回 JSON）。
@@ -2184,12 +2171,18 @@ struct Index {
     // 启动进度条与步骤动画，并与 OpenClaw 流式响应并行执行
     this.animateProgress();
 
+    // 与自由开发/多元开发对话一致：先弹「正在发送给 AI 助手…」发送动画，网关接收消息后（onSent）
+    // 切到「OpenClaw 正在回复」转圈，收到首个内容/终态事件即自动关闭（见 handleChatStreamEvent）。
+    this.aiProcessingPhase = 'sending';
+    this.aiProcessingOverlayVisible = true;
+    this.overlayShownAt = Date.now();
+
     let reply = '';
     try {
       reply = await this.client.startTurn(this.selectedTaskPrompt, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在连接并开始分析...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, '', () => { this.enterReplyingPhase(); });
       this.currentExecutionLog += '[openclaw] real agent turn accepted.\n';
       this.currentExecutionLog += '[openclaw] reply: ' + reply + '\n';
     } catch (error) {
@@ -2204,6 +2197,7 @@ struct Index {
       this.step1Status = 0;
       this.currentProgress = 0;
       this.openClawBusy = false;
+      this.aiProcessingOverlayVisible = false;
       this.tutorialStep = 1; // Back to step 1
       return;
     }
