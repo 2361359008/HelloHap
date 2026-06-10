@@ -1326,6 +1326,17 @@ struct Index {
     // 重置自由开发时，按「当前所选多元开发工程」的还原端点刷回该工程基线（不同工程不同端点）。
     let wasFreeDev = this.currentMode === 'advanced' && this.advancedScreen === 'freedev';
     let freeDevResetUrl = getMultiDevProject(this.multiDevProjectId).resetUrl;
+    // 重置后回到哪个子页：clearCourseState 会无条件把 advancedScreen 置 'menu'（高级关卡菜单），
+    // 但自由开发要按进入入口区分——多元开发列表进来的（multiDevTopLevel）应回多元开发列表，
+    // 高级菜单「自由开发」进来的日程工程才回高级菜单。逻辑与顶部「上一级」按钮保持一致。
+    let resetReturnScreen = 'menu';
+    if (wasFreeDev) {
+      if (this.multiDevProjectId === 'blank') {
+        resetReturnScreen = 'blanklist';
+      } else if (this.multiDevTopLevel) {
+        resetReturnScreen = 'multidev';
+      }
+    }
     // 先无条件清掉会话与课程状态（含 client.reset() 关旧连接 + freeDevReady/teachingReady=false）。
     // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
     // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
@@ -1334,6 +1345,8 @@ struct Index {
     // 当前工程自由开发 / 当前随心副本）的持久化记录；其它会话与关闭应用都不受影响。
     this.deleteActiveConversation();
     this.clearCourseState();
+    // clearCourseState 已把 advancedScreen 置 'menu'；按入口纠正回正确的父级子页。
+    this.advancedScreen = resetReturnScreen;
     this.sourceFileContent = '';
     this.sourceFileError = '';
     try {
