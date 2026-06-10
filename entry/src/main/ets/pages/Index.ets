@@ -2363,10 +2363,11 @@ struct Index {
                 : (this.currentMode === 'advanced' && this.advancedScreen === 'freedev' ? '重置开发' : '重置课程'))
                 .height(36)
                 .fontSize(14)
-                .backgroundColor('#f38ba8')
-                .fontColor('#1e1e2e')
+                .backgroundColor(this.openClawBusy ? '#45475a' : '#f38ba8')
+                .fontColor(this.openClawBusy ? '#a6adc8' : '#1e1e2e')
                 .borderRadius(8)
-                .enabled(!this.courseResetting)
+                .opacity(this.openClawBusy ? 0.5 : 1)
+                .enabled(!this.openClawBusy && !this.courseResetting)
                 .onClick(() => { this.confirmResetCourse(); })
             }
           }
