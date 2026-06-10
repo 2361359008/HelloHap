@@ -11,11 +11,13 @@ struct Index {
   @State videoSrc: Resource | string = $rawfile('welcome.mp4');
   @State urlInput: string = '';
   @State isPlaying: boolean = false;
-  @State statusText: string = '已加载内置视频';
+  @State statusText: string = '启动中，准备自动全屏播放...';
   @State currentTime: number = 0;
   @State durationTime: number = 0;
 
   private controller: VideoController = new VideoController();
+  // 启动自动全屏只做一次：首次开始播放时请求全屏，之后手动播放不再强制全屏。
+  private autoFullscreenDone: boolean = false;
 
   // 秒数格式化为 mm:ss。
   formatTime(seconds: number): string {
@@ -49,13 +51,19 @@ struct Index {
       })
         .width('100%')
         .height(240)
-        .autoPlay(false)
+        .autoPlay(true)
+        .loop(false)
         .controls(true)
         .objectFit(ImageFit.Contain)
         .backgroundColor('#000000')
         .onStart(() => {
           this.isPlaying = true;
           this.statusText = '播放中';
+          // 启动即自动全屏播放一次：首次开始播放时请求全屏，仅触发一次。
+          if (!this.autoFullscreenDone) {
+            this.autoFullscreenDone = true;
+            this.controller.requestFullscreen(true);
+          }
         })
         .onPause(() => {
           this.isPlaying = false;
@@ -64,6 +72,8 @@ struct Index {
         .onFinish(() => {
           this.isPlaying = false;
           this.statusText = '播放结束';
+          // 自动播放一次结束后退出全屏，回到普通播放器界面。
+          this.controller.exitFullscreen();
         })
         .onPrepared((event) => {
           if (event) {
