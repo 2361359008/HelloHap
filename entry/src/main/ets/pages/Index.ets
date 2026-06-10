@@ -1600,20 +1600,17 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原日程工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    await this.restoreAdvancedProject();
-    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    if (!this.teachingReady) {
-      this.projectInitStep = 1;
-      // 教学之路初始状态：仅启动完整主日程 HAP（板端直跑 aa start，不经 OpenClaw），再做轻量身份确认。
-      await this.installTeachingBaseline();
+    // 并行提速：板端日程工程还原+基线启动（HTTP→7681，仅 aa start）与 讲师身份初始化对话（OpenClaw）
+    // 同时进行。二者互不依赖——身份提示词只是「确认身份」，不读板端 HAP 状态——故无需串行等待。
+    let boardInit: Promise<void> = (async (): Promise<void> => {
+      await this.restoreAdvancedProject();
       if (epoch !== this.courseEpoch) {
         return;
       }
-      await this.initTeachingIdentity();
-    }
+      this.projectInitStep = 1;
+      await this.installTeachingBaseline();
+    })();
+    await Promise.all([boardInit, this.initTeachingIdentity()]);
   }
 
   // 进入「多元开发」工程列表（不立即还原/初始化，等用户在卡片里选具体工程）。
@@ -1669,17 +1666,17 @@ struct Index {
     this.workspaceTab = 0;
     this.chatMessages.push(new ChatMessage('assistant', '正在还原' + project.title + '工程到初始模板...'));
     this.chatMessages = [...this.chatMessages];
-    await this.restoreMultiDevProject(project);
-    // 还原是个 HTTP 往返：若期间课程被重置（代际变化），放弃继续启动旧流程。
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    this.projectInitStep = 1;
-    await this.installInitialMultiDevHap(project);
-    if (epoch !== this.courseEpoch) {
-      return;
-    }
-    await this.initMultiDevIdentity(project);
+    // 并行提速：板端 HAP 还原+安装（HTTP→7681）与 身份初始化对话（OpenClaw）同时进行。
+    // 二者互不依赖——身份提示词只是「确认身份」，不读板端 HAP 状态——故无需串行等待。
+    let boardInit: Promise<void> = (async (): Promise<void> => {
+      await this.restoreMultiDevProject(project);
+      if (epoch !== this.courseEpoch) {
+        return;
+      }
+      this.projectInitStep = 1;
+      await this.installInitialMultiDevHap(project);
+    })();
+    await Promise.all([boardInit, this.initMultiDevIdentity(project)]);
   }
 
   // 随心 A 方案：拉取已有空白工程副本列表（GET /blank-list 返回 JSON）。
