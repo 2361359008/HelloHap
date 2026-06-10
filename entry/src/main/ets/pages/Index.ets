@@ -2184,12 +2184,18 @@ struct Index {
     // 启动进度条与步骤动画，并与 OpenClaw 流式响应并行执行
     this.animateProgress();
 
+    // 与自由开发/多元开发对话一致：先弹「正在发送给 AI 助手…」发送动画，网关接收消息后（onSent）
+    // 切到「OpenClaw 正在回复」转圈，收到首个内容/终态事件即自动关闭（见 handleChatStreamEvent）。
+    this.aiProcessingPhase = 'sending';
+    this.aiProcessingOverlayVisible = true;
+    this.overlayShownAt = Date.now();
+
     let reply = '';
     try {
       reply = await this.client.startTurn(this.selectedTaskPrompt, () => {
         this.chatMessages.push(new ChatMessage('assistant', 'OpenClaw 正在连接并开始分析...'));
         this.chatMessages = [...this.chatMessages];
-      });
+      }, '', () => { this.enterReplyingPhase(); });
       this.currentExecutionLog += '[openclaw] real agent turn accepted.\n';
       this.currentExecutionLog += '[openclaw] reply: ' + reply + '\n';
     } catch (error) {
@@ -2204,6 +2210,7 @@ struct Index {
       this.step1Status = 0;
       this.currentProgress = 0;
       this.openClawBusy = false;
+      this.aiProcessingOverlayVisible = false;
       this.tutorialStep = 1; // Back to step 1
       return;
     }
