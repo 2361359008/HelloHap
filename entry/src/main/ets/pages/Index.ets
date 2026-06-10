@@ -1315,6 +1315,15 @@ struct Index {
     if (this.courseResetting) {
       return;
     }
+    // 与发送/进入工程等动作一致：对话回复中（openClawBusy）禁止重置——按钮已置灰，这里再做一层
+    // 逻辑兜底，避免任何情况下（按钮禁用态未拦住点击等）在 AI 处理途中弹出重置确认框打断本轮。
+    if (this.openClawBusy) {
+      promptAction.showToast({
+        message: 'OpenClaw 正在处理上一条消息，请等待回复完成。',
+        duration: 1800
+      });
+      return;
+    }
     this.resetConfirmVisible = true;
   }
 
@@ -1322,10 +1331,26 @@ struct Index {
     if (this.courseResetting) {
       return;
     }
+    // 兜底：对话回复中不执行重置（正常路径下确认框在 openClawBusy 时根本不会弹出）。
+    if (this.openClawBusy) {
+      this.resetConfirmVisible = false;
+      return;
+    }
     this.courseResetting = true;
     // 重置自由开发时，按「当前所选多元开发工程」的还原端点刷回该工程基线（不同工程不同端点）。
     let wasFreeDev = this.currentMode === 'advanced' && this.advancedScreen === 'freedev';
     let freeDevResetUrl = getMultiDevProject(this.multiDevProjectId).resetUrl;
+    // 重置后回到哪个子页：clearCourseState 会无条件把 advancedScreen 置 'menu'（高级关卡菜单），
+    // 但自由开发要按进入入口区分——多元开发列表进来的（multiDevTopLevel）应回多元开发列表，
+    // 高级菜单「自由开发」进来的日程工程才回高级菜单。逻辑与顶部「上一级」按钮保持一致。
+    let resetReturnScreen = 'menu';
+    if (wasFreeDev) {
+      if (this.multiDevProjectId === 'blank') {
+        resetReturnScreen = 'blanklist';
+      } else if (this.multiDevTopLevel) {
+        resetReturnScreen = 'multidev';
+      }
+    }
     // 先无条件清掉会话与课程状态（含 client.reset() 关旧连接 + freeDevReady/teachingReady=false）。
     // 不能把它放在工程还原 HTTP 成功之后：高级版还原脚本较重（30s 超时），一旦慢/失败就会跳过清理，
     // 导致会话没被重置、freeDevReady 仍为 true，下次进自由发挥复用旧会话（即「粘在上一个会话」）。
@@ -1334,6 +1359,8 @@ struct Index {
     // 当前工程自由开发 / 当前随心副本）的持久化记录；其它会话与关闭应用都不受影响。
     this.deleteActiveConversation();
     this.clearCourseState();
+    // clearCourseState 已把 advancedScreen 置 'menu'；按入口纠正回正确的父级子页。
+    this.advancedScreen = resetReturnScreen;
     this.sourceFileContent = '';
     this.sourceFileError = '';
     try {
@@ -3033,23 +3060,24 @@ struct Index {
                 Column() {
                   // Input Bar at the Bottom
                   Row() {
-                    TextInput({
+                    // 多行输入框：字号接近上方提示词、文字黄色、可输入并展示 5~6 行（高度占用上方空间）。
+                    TextArea({
                       placeholder: this.studentQuestionEnabled ? (this.openClawBusy ? 'OpenClaw 正在处理，请等待回复完成...' : '在此提问，例如：什么是 HAP 签名？') : '请先点击“呼叫 OpenClaw 协同开发”并等待任务完成...',
                       text: this.chatInput
                     })
                       .layoutWeight(1)
-                      .height(34)
-                      .fontSize(11)
-                      .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#cdd6f4' : '#6c7086')
+                      .height(148)
+                      .fontSize(14)
+                      .fontColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#f9e2af' : '#6c7086')
                       .placeholderColor('#585b70')
                       .backgroundColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#11111b' : '#181825')
-                      .borderRadius(4)
+                      .borderRadius(6)
                       .borderWidth(1)
                       .borderColor((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy ? '#45475a' : '#313244')
+                      .padding({ left: 10, right: 10, top: 8, bottom: 8 })
                       .margin({ right: 6 })
                       .enabled((this.studentQuestionEnabled || this.tutorialStep === 4) && !this.openClawBusy)
                       .onChange((v) => { this.chatInput = v; })
-                      .onSubmit(() => { this.sendChatMessage(); })
 
                     if (this.openClawBusy) {
                       // 处理中：转圈 + 「运行中」，醒目背景、禁用点击。
@@ -3080,6 +3108,7 @@ struct Index {
                     }
                   }
                   .width('100%')
+                  .alignItems(VerticalAlign.Bottom)
                 }
                 .width('100%')
                 .padding(12)
