@@ -1025,6 +1025,27 @@ struct Index {
     }
   }
 
+  // 用户主动「停止对话」：在发送键忙态（openClawBusy）时，由输入框左侧的停止按钮触发，
+  // 提前终止当前这一轮对话。给网关发 chat.abort 释放板端在途 run，但保留会话上下文（不清会话）。
+  stopChatTurn(): void {
+    if (!this.openClawBusy) {
+      return;
+    }
+    // 自增代际：丢弃迟到的旧轮次事件，并让等待 startTurn 的 catch 因 epoch 不符而静默返回，
+    // 不再补「OpenClaw 调用失败」残留文案。
+    this.courseEpoch++;
+    // 发 chat.abort 中止板端在途 run，并解开仍在等待本轮的调用方（复位忙态）。
+    this.client.cancelActiveRunKeepSession();
+    // 停止历史轮询、关闭全屏遮罩、复位忙态，让输入框立刻可继续提问。
+    this.stopHistoryPolling();
+    this.aiProcessingOverlayVisible = false;
+    this.blankCreatingOverlayVisible = false;
+    this.openClawBusy = false;
+    this.chatMessages.push(new ChatMessage('assistant', '已停止本轮对话。你可以继续输入新的问题。'));
+    this.chatMessages = [...this.chatMessages];
+    this.persistConversations();
+  }
+
   selectPracticeLevel() {
     this.selectedTaskIndex = 4;
     this.selectedTaskTitle = '练习关卡：OpenClaw 自由练习';
@@ -3061,6 +3082,20 @@ struct Index {
                 Column() {
                   // Input Bar at the Bottom
                   Row() {
+                    // 发送不可点击（openClawBusy）时，在输入框左侧出现「停止对话」按钮，
+                    // 供用户提前终止当前这一轮对话；可正常输入（发送可点击）时不显示该按钮。
+                    if (this.openClawBusy) {
+                      Button('停止对话')
+                        .height(34)
+                        .fontSize(12)
+                        .fontColor('#1e1e2e')
+                        .fontWeight(FontWeight.Bold)
+                        .backgroundColor('#f38ba8')
+                        .borderRadius(4)
+                        .padding({ left: 14, right: 14 })
+                        .margin({ right: 6 })
+                        .onClick(() => { this.stopChatTurn(); })
+                    }
                     // 多行输入框：字号接近上方提示词、文字黄色。不设固定高度，靠 constraintSize 约束——
                     // 初始约 2 行高，随输入文字增多自动变高，最多约 6 行后内部滚动。
                     TextArea({
