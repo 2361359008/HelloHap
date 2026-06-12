@@ -527,6 +527,14 @@ export class OpenClawClient {
     }
   }
 
+  // 「停止对话」专用：只给网关发 chat.abort 中止当前会话在途 run，保留 sessionKey/sessionId/agent
+  // 与会话上下文（不走 reset 的清会话路）。与 cancelActiveRunKeepSession 的关键区别：**不在本地解除
+  // 等待**——保留 agentTurnResolve/Reject，由网关回传的 chat 'aborted'/'final' 事件驱动页面收尾，
+  // 确保板端 run 真正停了才解锁，避免「软中止后立刻发新消息与未停的旧 run 在同一会话叠加」导致后续错乱。
+  abortActiveRunKeepWaiting(): void {
+    this.abortActiveRun(this.ws);
+  }
+
   // 软件退出（页面/应用销毁）时调用：只给网关发 chat.abort 中止当前会话正在板上占队列的活动 run，
   // 但保留 sessionKey/sessionId/agent 与已持久化的会话上下文——不走 reset() 那条清会话/清上下文的路。
   // 与 reset() 的区别：不自增 resetEpoch、不清会话、不丢弃连接实例，仅释放板端在途 run。

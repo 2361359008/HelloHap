@@ -50,6 +50,8 @@ struct Index {
   @State advancedFilesError: string = '';
   @State selectedSourceFile: string = '';
   @State courseResetting: boolean = false;
+  // 「停止对话」已发起、正在等待网关确认本轮 run 真正中止（期间输入仍锁、按钮显示「停止中…」）。
+  @State stopRequested: boolean = false;
   @State resetConfirmVisible: boolean = false;
   @State courseResetNoticeVisible: boolean = false;
   @State courseResetNoticeSuccess: boolean = true;
@@ -184,6 +186,7 @@ struct Index {
     // 软件退出（页面/应用销毁）前：先中止正在板子上占队列的当前 run，再回写持久化。
     // 自增 courseEpoch 让任何迟到的旧轮次事件被现有 epoch 守卫丢弃，不污染会话。
     this.courseEpoch++;
+    this.stopRequested = false;
     // 只发 chat.abort 释放板端在途 run，保留 sessionKey/sessionId 与会话上下文——不走 reset() 清会话的路。
     this.client.cancelActiveRunKeepSession();
     // 把当前活动会话回写并持久化，避免最后一段对话丢失。
@@ -380,6 +383,7 @@ struct Index {
       this.persistConversations();
       this.stopHistoryPolling();
       this.courseEpoch++;
+      this.stopRequested = false;
       this.openClawBusy = false;
       this.aiProcessingOverlayVisible = false;
       this.projectInitOverlayVisible = false;
@@ -551,6 +555,18 @@ struct Index {
     }
 
     let state = payload['state'] as string;
+
+    // 「停止对话」已发起：忽略旧 run 的过程事件（delta 等，避免把残留内容写进对话区）；
+    // 一旦收到本轮任意终止事件（final/aborted/error 等），即视为网关已确认 run 停止，干净收尾。
+    if (this.stopRequested) {
+      if (state === 'final' || state === 'complete' || state === 'completed'
+        || state === 'done' || state === 'end' || state === 'finished'
+        || state === 'error' || state === 'aborted') {
+        this.completeStop();
+      }
+      return;
+    }
+
     let text = '';
 
     if (payload['text'] && typeof payload['text'] === 'string') {
@@ -1025,23 +1041,47 @@ struct Index {
     }
   }
 
-  // 用户主动「停止对话」：在发送键忙态（openClawBusy）时，由输入框左侧的停止按钮触发，
-  // 提前终止当前这一轮对话。给网关发 chat.abort 释放板端在途 run，但保留会话上下文（不清会话）。
+  // 用户主动「停止对话」：在发送键忙态（openClawBusy）时，由输入框左侧的停止按钮触发，提前终止本轮。
+  // 关键：只给网关发 chat.abort，**不立即解锁**——保留会话上下文，等网关回传本轮终止事件
+  // （'aborted'/'final'）确认板端 run 真停了，再由 completeStop 收尾解锁；并设 8s 兜底，避免网关不回时卡死。
+  // 这样在同一会话里继续提问时，旧 run 已确认停止，不会与新一轮叠加导致后续对话错乱。
   stopChatTurn(): void {
-    if (!this.openClawBusy) {
+    if (!this.openClawBusy || this.stopRequested) {
       return;
     }
-    // 自增代际：丢弃迟到的旧轮次事件，并让等待 startTurn 的 catch 因 epoch 不符而静默返回，
-    // 不再补「OpenClaw 调用失败」残留文案。
+    this.stopRequested = true;
+    // 停止历史轮询与全屏遮罩；但保持 openClawBusy=true 锁住输入，按钮转为「停止中…」直到确认停止。
+    this.stopHistoryPolling();
+    this.aiProcessingOverlayVisible = false;
+    this.blankCreatingOverlayVisible = false;
+    // 仅发 chat.abort 中止板端在途 run，保留 session 与等待回调，由网关确认事件驱动收尾。
+    this.client.abortActiveRunKeepWaiting();
+    // 兜底：8s 内网关未回传本轮终止事件，则强制收尾解锁（仍保留会话上下文）。
+    let stopEpoch = this.courseEpoch;
+    setTimeout(() => {
+      if (this.stopRequested && stopEpoch === this.courseEpoch) {
+        this.completeStop();
+      }
+    }, 8000);
+  }
+
+  // 收尾「停止对话」：在网关确认本轮 run 已中止（或兜底超时）后调用。
+  // 自增 courseEpoch 丢弃旧 run 迟到事件，并让仍 await startTurn 的调用方因 epoch 不符静默返回
+  // （不补失败文案）；随后复位忙态、解开等待，并保留会话上下文供继续提问。
+  private completeStop(): void {
+    if (!this.stopRequested) {
+      return;
+    }
+    this.stopRequested = false;
     this.courseEpoch++;
-    // 发 chat.abort 中止板端在途 run，并解开仍在等待本轮的调用方（复位忙态）。
-    this.client.cancelActiveRunKeepSession();
-    // 停止历史轮询、关闭全屏遮罩、复位忙态，让输入框立刻可继续提问。
     this.stopHistoryPolling();
     this.aiProcessingOverlayVisible = false;
     this.blankCreatingOverlayVisible = false;
     this.openClawBusy = false;
-    this.chatMessages.push(new ChatMessage('assistant', '已停止本轮对话。你可以继续输入新的问题。'));
+    this.seenChatEventShapes.clear();
+    // 解开仍在等待本轮的调用方（其 catch/后续因 epoch 不符静默返回，不再补残留文案）。
+    this.client.failTurn(new Error('用户已停止本轮对话'));
+    this.chatMessages.push(new ChatMessage('assistant', '已停止本轮对话。你可以继续输入新的问题（已保留会话上下文）。'));
     this.chatMessages = [...this.chatMessages];
     this.persistConversations();
   }
@@ -1295,6 +1335,7 @@ struct Index {
     // 页面层代际自增：在途的 enterFreeDev/enterTeaching/init* 在其 await 返回后会发现
     // 代际已变而放弃继续启动旧流程（如已被重置后才返回的 restoreAdvancedProject）。
     this.courseEpoch++;
+    this.stopRequested = false;
     this.client.reset();
     this.stopHistoryPolling();
     this.turnRichActive = false;
@@ -3085,7 +3126,7 @@ struct Index {
                     // 发送不可点击（openClawBusy）时，在输入框左侧出现「停止对话」按钮，
                     // 供用户提前终止当前这一轮对话；可正常输入（发送可点击）时不显示该按钮。
                     if (this.openClawBusy) {
-                      Button('停止对话')
+                      Button(this.stopRequested ? '停止中…' : '停止对话')
                         .height(34)
                         .fontSize(12)
                         .fontColor('#1e1e2e')
@@ -3094,6 +3135,8 @@ struct Index {
                         .borderRadius(4)
                         .padding({ left: 14, right: 14 })
                         .margin({ right: 6 })
+                        .opacity(this.stopRequested ? 0.6 : 1)
+                        .enabled(!this.stopRequested)
                         .onClick(() => { this.stopChatTurn(); })
                     }
                     // 多行输入框：字号接近上方提示词、文字黄色。不设固定高度，靠 constraintSize 约束——
@@ -3122,7 +3165,7 @@ struct Index {
                         Row() {
                           LoadingProgress()
                             .width(16).height(16).color('#1e1e2e')
-                          Text('运行中')
+                          Text(this.stopRequested ? '停止中' : '运行中')
                             .fontSize(12).fontColor('#1e1e2e').fontWeight(FontWeight.Bold)
                             .margin({ left: 6 })
                         }
