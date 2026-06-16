@@ -19,3 +19,13 @@ scripts/*.zip
 *.tar
 *.tar.gz
 *.zip
+# Large local artifacts
+backup/
+dist/**/*.tar
+dist/**/*.tar.gz
+dist/**/*.zip
+scripts/*.tar.gz
+scripts/*.zip
+*.tar
+*.tar.gz
+*.zip
