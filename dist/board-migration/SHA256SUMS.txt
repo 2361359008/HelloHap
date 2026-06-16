@@ -1,0 +1,2 @@
+1de470b46fc3e5f915dfe7026c26195f46de8db2faeaa28ddcdccb674a0f3f8c  hellohap-runtime-migration-20260610-extra-haps-v3.tar.gz
+f19ebf9d5b96f3633b5a456745e036024dae73d42ad59d0f143e6b849b3706a8  hellohap-buildenv-migration-20260610-v2.tar.gz
